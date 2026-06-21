@@ -74,7 +74,7 @@ logger_init(struct logger * inst, struct skynet_context *ctx, const char * parm)
 	const char * r = skynet_command(ctx, "STARTTIME", NULL);
 	inst->starttime = strtoul(r, NULL, 10);
 	if (parm) {
-		inst->handle = fopen(parm,"a");
+		inst->handle = fopen(parm,"w");   // "w" 模式：每次启动覆盖旧日志
 		if (inst->handle == NULL) {
 			return 1;
 		}

@@ -12,9 +12,16 @@
 
 #define HANDLE_CACHE_LINE 64
 
+/**
+ * handle_reader_slot — 分布式读锁槽位
+ *
+ * 每个框架线程（worker/timer/socket/monitor）分配一个槽位。
+ * 读 handle 表时仅设置自己的 active=1，无需争抢全局读写锁。
+ * _pad 填充到 CPU cache line 大小（64 字节），防止 false sharing。
+ */
 struct handle_reader_slot {
-	ATOM_INT active;
-	char _pad[HANDLE_CACHE_LINE - sizeof(ATOM_INT)];
+	ATOM_INT active;                                // 是否正在读：1=读取中，0=空闲
+	char _pad[HANDLE_CACHE_LINE - sizeof(ATOM_INT)]; // 填充到 64 字节（cache line）
 };
 
 static _Thread_local int TLS_SLOT_IDX = -1;
@@ -27,22 +34,32 @@ struct handle_name {
 	uint32_t handle;
 };
 
+/**
+ * handle_storage — 全局 Handle 管理器（单例 H）
+ *
+ * 职责：handle ↔ context 双向映射，handle ↔ name 映射。
+ *
+ * 核心机制：
+ *   - slot 哈希表：handle & (slot_size-1) → context*，冲突时线性探测
+ *   - name 有序数组：按名字字典序排列，二分查找 O(log n)
+ *   - 分布式读锁：rslots 数组 + 每个线程的 TLS_SLOT_IDX
+ */
 struct handle_storage {
-	struct rwlock lock;
+	struct rwlock lock;                    // 读写锁：写操作需等待所有读槽位清空
 
-	uint32_t harbor;
-	uint32_t handle_index;
-	int slot_size;
-	struct skynet_context ** slot;
+	uint32_t harbor;                       // 本节点 harbor（已左移 24 位，如 harbor=1 → 0x01000000）
+	uint32_t handle_index;                 // 下一个可分配 handle index（自增）
+	int slot_size;                         // 哈希表容量（2 的幂，初始 DEFAULT_SLOT_SIZE=4）
+	struct skynet_context ** slot;         // handle → context 哈希表（开放定址）
 
-	int name_cap;
-	int name_count;
-	struct handle_name *name;
+	int name_cap;                          // name 数组当前容量
+	int name_count;                        // name 数组已使用数量
+	struct handle_name *name;              // 名字 → handle 有序数组（按 name 字典序排列）
 
-	// distributed reader slots
-	ATOM_INT thread_idx;
-	int rslot_count;
-	struct handle_reader_slot *rslots;
+	// 分布式读槽位
+	ATOM_INT thread_idx;                   // 自增分配器：每个线程注册时 ATOM_FINC 取编号
+	int rslot_count;                       // 槽位总数 = worker 数 + 3（timer/socket/monitor）
+	struct handle_reader_slot *rslots;     // 槽位数组
 };
 
 static struct handle_storage *H = NULL;

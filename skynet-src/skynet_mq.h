@@ -4,11 +4,22 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+/**
+ * skynet_message — 消息结构体
+ *
+ * 消息在 C 层以值拷贝方式在环形队列中存储。
+ * data 指向堆内存，由发送方在 _filter_args 中深拷贝，
+ * 由接收方在 dispatch_message 中释放（cb 返回 0 时）。
+ *
+ * sz 字段编码了两项信息：
+ *   高 8 位 (64-bit: 56-63, 32-bit: 24-31): 消息类型 (PTYPE_*)
+ *   低   位 (64-bit: 0-55,  32-bit: 0-23):  实际数据长度
+ */
 struct skynet_message {
-	uint32_t source;
-	int session;
-	void * data;
-	size_t sz;
+	uint32_t source;   // 发送方 handle（0 表示框架线程发出的消息）
+	int session;       // RPC 会话 ID（0=不需要响应，正数=call/response 配对号）
+	void * data;       // 消息体数据指针（堆内存，所有权随消息传递）
+	size_t sz;         // [高8位:消息类型] | [低位:数据长度]（见 MESSAGE_TYPE_SHIFT/MASK）
 };
 
 // type is encoding in skynet_message.sz high 8bit

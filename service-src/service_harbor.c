@@ -415,10 +415,31 @@ dispatch_queue(struct harbor *h, int id) {
 	s->queue = NULL;
 }
 
+/**
+ * push_socket_data — TCP 数据接收状态机
+ *
+ * Harbor 节点间的通信协议：
+ *   ┌──────────┬────────────────────────────────┬──────────┐
+ *   │ 1 字节    │  4 字节 (big-endian)            │ N 字节    │
+ *   │ harbor_id │  payload 长度 (最大 16MB)       │ payload  │
+ *   └──────────┴────────────────────────────────┴──────────┘
+ *   ◄── 握手阶段 ──►◄────── 头部阶段 ────────────►◄── 内容阶段 ──►
+ *
+ * 状态机流转（利用了 C 的 switch fall-through）：
+ *   HANDSHAKE → HEADER → CONTENT → HEADER → CONTENT → ...
+ *
+ * 一次 read() 可能收到多个完整数据包，所以用 for(;;) + switch(s->status)
+ * 在同一个调用中持续消费数据，直到 buffer 耗尽。
+ *
+ * @param h       harbor 实例
+ * @param message socket 数据消息（type=DATA, buffer, ud=size）
+ */
 static void
 push_socket_data(struct harbor *h, const struct skynet_socket_message * message) {
 	assert(message->type == SKYNET_SOCKET_TYPE_DATA);
 	int fd = message->id;
+
+	// 找到 fd 对应的 slave（远程节点连接）
 	int i;
 	int id = 0;
 	struct slave * s = NULL;
@@ -433,77 +454,99 @@ push_socket_data(struct harbor *h, const struct skynet_socket_message * message)
 		skynet_error(h->ctx, "Invalid socket fd (%d) data", fd);
 		return;
 	}
-	uint8_t * buffer = (uint8_t *)message->buffer;
-	int size = message->ud;
 
+	uint8_t * buffer = (uint8_t *)message->buffer;
+	int size = message->ud;   // 本次收到的数据长度
+
+	// 状态机主循环：一次可能处理多个完整数据包
 	for (;;) {
 		switch(s->status) {
 		case STATUS_HANDSHAKE: {
-			// check id
+			// ─── 握手：接收 1 字节，校验对方 harbor id ───
 			uint8_t remote_id = buffer[0];
 			if (remote_id != id) {
+				// harbor id 不匹配 → 断开连接
 				skynet_error(h->ctx, "Invalid shakehand id (%d) from fd = %d , harbor = %d", id, fd, remote_id);
 				close_harbor(h,id);
 				return;
 			}
 			++buffer;
 			--size;
-			s->status = STATUS_HEADER;
+			s->status = STATUS_HEADER;   // 握手完成 → 进入头部解析
 
+			// 握手完成后，立即发送积压的待发消息
 			dispatch_queue(h, id);
 
 			if (size == 0) {
-				break;
+				break;   // 本次数据已消费完毕
 			}
-			// go though
+			// ★ fall-through: 继续解析后续数据的头部
 		}
 		case STATUS_HEADER: {
-			// big endian 4 bytes length, the first one must be 0.
-			int need = 4 - s->read;
+			// ─── 头部：接收 4 字节 big-endian 长度 ───
+			// size[0] 必须为 0（最大支持 16MB 消息）
+			int need = 4 - s->read;   // 还需要几个字节才能凑齐 4 字节头
 			if (size < need) {
+				// 半包：数据不够 4 字节，先存到 s->size 中等待下次
 				memcpy(s->size + s->read, buffer, size);
 				s->read += size;
 				return;
 			} else {
+				// 完整收到了 4 字节头部
 				memcpy(s->size + s->read, buffer, need);
 				buffer += need;
 				size -= need;
 
 				if (s->size[0] != 0) {
+					// 第一个字节非 0 → 消息太长（>16MB），断开
 					skynet_error(h->ctx, "Message is too long from harbor %d", id);
 					close_harbor(h,id);
 					return;
 				}
+				// 解析大端序 3 字节长度 → s->length
 				s->length = s->size[1] << 16 | s->size[2] << 8 | s->size[3];
 				s->read = 0;
-				s->recv_buffer = skynet_malloc(s->length);
-				s->status = STATUS_CONTENT;
+				s->recv_buffer = skynet_malloc(s->length);  // 分配接收缓冲区
+				s->status = STATUS_CONTENT;                  // → 进入内容读取
 				if (size == 0) {
 					return;
 				}
+				// ★ fall-through: 继续读取消息体
 			}
 		}
-		// go though
 		case STATUS_CONTENT: {
-			int need = s->length - s->read;
+			// ─── 内容：接收 payload（s->length 字节） ───
+			int need = s->length - s->read;   // 还需读取的字节数
 			if (size < need) {
+				// 半包：数据不够，先存起来
 				memcpy(s->recv_buffer + s->read, buffer, size);
 				s->read += size;
 				return;
 			}
+			// 完整接收了一个消息体
 			memcpy(s->recv_buffer + s->read, buffer, need);
+
+			// ★ 核心：将接收到的远程消息转发给本地目标服务
+			//   forward_local_messsage 解析 12 字节 Cookie（source/dest/session），
+			//   将 destination 的 harbor 替换为本节点 harbor，然后 skynet_send
 			forward_local_messsage(h, s->recv_buffer, s->length);
+
+			// 重置接收状态，准备处理下一个消息
 			s->length = 0;
 			s->read = 0;
 			s->recv_buffer = NULL;
+
 			size -= need;
 			buffer += need;
-			s->status = STATUS_HEADER;
+			s->status = STATUS_HEADER;   // → 回到头部解析
+
 			if (size == 0)
 				return;
+			// ★ break（而非 fall-through），由外层 for(;;) 重新进入 switch
 			break;
 		}
 		default:
+			// STATUS_WAIT / STATUS_DOWN：不处理
 			return;
 		}
 	}

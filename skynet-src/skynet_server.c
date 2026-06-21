@@ -39,33 +39,47 @@
 
 #endif
 
+/**
+ * skynet_context — Skynet 中最核心的数据结构，每个服务对应一个实例
+ *
+ * 生命周期：
+ *   skynet_context_new() 创建（ref=2）
+ *   → handle_register（ref+1 来自 handle 系统）
+ *   → module_instance_init（ref+1 来自模块初始化）
+ *   → 运行时 grab/release 配对操作
+ *   → handle_retire（从哈希表移除）
+ *   → ref 归零时 delete_context() 释放所有资源
+ */
 struct skynet_context {
-	void * instance;
-	struct skynet_module * mod;
-	void * cb_ud;
-	skynet_cb cb;
-	struct message_queue *queue;
-	ATOM_POINTER logfile;
-	uint64_t cpu_cost;	// in microsec
-	uint64_t cpu_start;	// in microsec
-	char result[32];
-	uint32_t handle;
-	int session_id;
-	ATOM_INT ref;
-	size_t message_count;
-	bool init;
-	bool endless;
-	bool profile;
+	void * instance;             // 模块实例：snlua → lua_State*，gate → 连接表
+	struct skynet_module * mod;  // 所属 C 模块（含 init/create/release 接口）
+	void * cb_ud;                // 回调 userdata：Lua 服务存 callback_context
+	skynet_cb cb;                // ★ 消息回调入口：所有消息通过此函数分发
+	struct message_queue *queue;  // 该服务的消息队列（环形缓冲区，独立于其他服务）
+	ATOM_POINTER logfile;        // 日志文件指针（NULL=不记录，原子 CAS 操作）
+	uint64_t cpu_cost;           // CPU 耗时累计（微秒），仅 profile 模式记录
+	uint64_t cpu_start;          // 当前消息处理开始时间（微秒），用于计算单条耗时
+	char result[32];             // 命令执行结果字符串缓冲区（console 查询用）
+	uint32_t handle;             // ★ 32 位服务地址 = (harbor << 24) | index
+	int session_id;              // 自增 session 计数器，用于 RPC call/response 配对
+	ATOM_INT ref;                // ★ 引用计数（原子操作），归零时触发 delete_context
+	size_t message_count;        // 已处理消息总数（STAT message 命令查询）
+	bool init;                   // 初始化完成标志，为 true 前 dispatch_message 不会调用 cb
+	bool endless;                // 无尽模式：队列空也不从全局队列移除该服务
+	bool profile;                // 性能分析开关（继承自 G_NODE.profile）
 
-	CHECKCALLING_DECL
+	CHECKCALLING_DECL             // 调试模式：spinlock 防并发回调（默认关闭）
 };
 
+/**
+ * skynet_node — 进程级全局状态，整个 skynet 进程只有一个实例 G_NODE
+ */
 struct skynet_node {
-	ATOM_INT total;
-	int init;
-	uint32_t monitor_exit;
-	pthread_key_t handle_key;
-	bool profile;	// default is on
+	ATOM_INT total;              // 当前存活 context 数量（原子），归零时所有线程退出
+	int init;                    // 全局初始化完成标志（skynet_globalinit 后置 1）
+	uint32_t monitor_exit;       // 监控退出服务 handle：KILL 时给该服务发 PTYPE_CLIENT 通知
+	pthread_key_t handle_key;    // TLS key：存储当前线程所在的服务 handle 或线程类型标记
+	bool profile;                // 全局 profile 开关（默认 true，-=1 关闭）
 };
 
 static struct skynet_node G_NODE;
@@ -107,20 +121,46 @@ id_to_hex(char * str, uint32_t id) {
 	str[9] = '\0';
 }
 
+/**
+ * drop_t — 丢消息时的上下文
+ */
 struct drop_t {
-	uint32_t handle;
+	uint32_t handle;   // 被销毁的服务 handle（用于回发 PTYPE_ERROR）
 };
 
+/**
+ * drop_message — 丢弃消息回调
+ *
+ * 当服务被销毁时，其队列中剩余的消息通过此函数丢弃。
+ * 每丢弃一条消息，向消息的 source 回发一条 PTYPE_ERROR。
+ */
 static void
 drop_message(struct skynet_message *msg, void *ud) {
 	struct drop_t *d = ud;
 	skynet_free(msg->data);
 	uint32_t source = d->handle;
 	assert(source);
-	// report error to the message source
+	// 回发错误消息通知发送方
 	skynet_send(NULL, source, msg->source, PTYPE_ERROR, msg->session, NULL, 0);
 }
 
+/**
+ * skynet_context_new — 创建一个新的服务实例
+ *
+ * 流程：
+ *   1. 通过 module 系统查找/加载 C 服务 .so
+ *   2. 创建模块实例（instance）
+ *   3. 分配 skynet_context 并初始化各字段
+ *   4. 向 handle 系统注册，获得 32 位 handle
+ *   5. 创建消息队列
+ *   6. 调用 module->init（Lua 服务在此加载脚本）
+ *   7. 初始化成功 → 加入全局队列，打 LAUNCH 日志
+ *      初始化失败 → 回退：retire handle + 释放队列 + 发 PTYPE_ERROR
+ *
+ * @param name   服务模块名（如 "snlua", "logger"）
+ * @param param  初始化参数（如 "bootstrap", 配置文件路径）
+ * @return       成功返回 32 位 handle，失败返回 0
+ */
 uint32_t
 skynet_context_new(const char * name, const char *param) {
 	struct skynet_module * mod = skynet_module_query(name);
@@ -252,30 +292,69 @@ skynet_isremote(struct skynet_context * ctx, uint32_t handle, int * harbor) {
 	return ret;
 }
 
+/**
+ * dispatch_message — 将一条消息解码后分发给目标服务的回调函数
+ *
+ * 这是消息从"队列中的字节"变成"服务可理解的参数"的关键转换点。
+ * 调用方（skynet_context_message_dispatch）已经持有了 ctx 的引用计数，
+ * 所以这里不需要额外的 grab/release。
+ *
+ * 流程：
+ *   1. 解码 sz → 分离出消息类型 (type) 和实际数据长度 (sz)
+ *   2. 设置 TLS handle_key 为当前服务的 handle（标识当前执行上下文）
+ *   3. 如果配置了日志文件，输出消息日志
+ *   4. 调用 ctx->cb 回调（Lua 服务指向 _cb，C 服务自定义）
+ *   5. 根据回调返回值决定是否释放消息数据
+ *
+ * @param ctx  目标服务上下文（调用前已确保 ctx->init == true）
+ * @param msg  待分发的消息（sz 字段高 8 位已编码消息类型）
+ */
 static void
 dispatch_message(struct skynet_context *ctx, struct skynet_message *msg) {
+	// 服务初始化未完成时不应收到消息
 	assert(ctx->init);
+
+	// CALLING_CHECK 调试模式：确保同一 context 不被多个 worker 并发回调
 	CHECKCALLING_BEGIN(ctx)
+
+	// 设置 TLS，标记当前线程正在 ctx->handle 服务的上下文中执行
+	// 这样 skynet_current_handle() 就能返回正确的 handle
 	pthread_setspecific(G_NODE.handle_key, (void *)(uintptr_t)(ctx->handle));
-	int type = msg->sz >> MESSAGE_TYPE_SHIFT;
-	size_t sz = msg->sz & MESSAGE_TYPE_MASK;
+
+	// 解码消息：sz 高 8 位存类型，低 56/24 位存数据长度
+	int type = msg->sz >> MESSAGE_TYPE_SHIFT;   // 提取消息类型（PTYPE_*）
+	size_t sz = msg->sz & MESSAGE_TYPE_MASK;     // 提取实际数据长度
+
+	// 日志记录（如果通过 LOGON 命令开启了该服务的日志）
 	FILE *f = (FILE *)ATOM_LOAD(&ctx->logfile);
 	if (f) {
 		skynet_log_output(f, msg->source, type, msg->session, msg->data, sz);
 	}
+
+	// 已处理消息计数
 	++ctx->message_count;
+
 	int reserve_msg;
 	if (ctx->profile) {
+		// 性能分析模式：记录 CPU 耗时
 		ctx->cpu_start = skynet_thread_time();
-		reserve_msg = ctx->cb(ctx, ctx->cb_ud, type, msg->session, msg->source, msg->data, sz);
+		reserve_msg = ctx->cb(ctx, ctx->cb_ud, type, msg->session,
+		                      msg->source, msg->data, sz);
 		uint64_t cost_time = skynet_thread_time() - ctx->cpu_start;
 		ctx->cpu_cost += cost_time;
 	} else {
-		reserve_msg = ctx->cb(ctx, ctx->cb_ud, type, msg->session, msg->source, msg->data, sz);
+		// 普通模式：直接调用回调
+		reserve_msg = ctx->cb(ctx, ctx->cb_ud, type, msg->session,
+		                      msg->source, msg->data, sz);
 	}
+
+	// 回调返回值语义：
+	//   0 — 消息数据已被消费，框架负责 skynet_free(msg->data)
+	//   非0 — 服务自己接管了数据所有权（如 forward 模式），框架不释放
 	if (!reserve_msg) {
 		skynet_free(msg->data);
 	}
+
 	CHECKCALLING_END(ctx)
 }
 
@@ -289,58 +368,88 @@ skynet_context_dispatchall(struct skynet_context * ctx) {
 	}
 }
 
+/**
+ * skynet_context_message_dispatch — Worker 线程核心调度函数
+ *
+ * 这是整个 Skynet 框架最核心的调度逻辑，被每个 Worker 线程循环调用。
+ *
+ * 流程：
+ *   1. 如果 q==NULL，从全局队列 pop 头部取一个服务队列
+ *   2. 通过 handle 获取 ctx（grab 引用计数防并发销毁）
+ *   3. 根据 weight 计算本次处理 n 条消息（n = length >> weight）
+ *   4. 逐条 pop 消息 → dispatch_message → 调用 ctx->cb 回调
+ *   5. 公平调度：如果全局队列还有别的服务，当前队列放回队尾
+ *
+ * @param sm      watchdog（卡死检测用）
+ * @param q       上次处理的服务队列（NULL 表示需要从全局队列取新的）
+ * @param weight  调度权重：-1=全处理，0/1/2/3=逐级减半
+ * @return        下一个要处理的服务队列（NULL 表示全局队列为空）
+ */
 struct message_queue *
 skynet_context_message_dispatch(struct skynet_monitor *sm, struct message_queue *q, int weight) {
+	// ── 步骤 1：获取服务队列 ──
 	if (q == NULL) {
-		q = skynet_globalmq_pop();
+		q = skynet_globalmq_pop();   // 从全局队列头部取出
 		if (q==NULL)
-			return NULL;
+			return NULL;              // 全局队列为空，worker 将进入睡眠
 	}
 
+	// ── 步骤 2：通过 handle 获取 context（带引用计数保护） ──
 	uint32_t handle = skynet_mq_handle(q);
 
 	struct skynet_context * ctx = skynet_handle_grab(handle);
 	if (ctx == NULL) {
+		// 服务已被销毁 → 丢弃队列中所有消息 → 取下一个服务
 		struct drop_t d = { handle };
 		skynet_mq_release(q, drop_message, &d);
 		return skynet_globalmq_pop();
 	}
 
-	int i,n=1;
+	// ── 步骤 3：批量处理消息（最多 n 条） ──
+	int i,n=1;   // n=1 是初始值，首次 pop 后根据 weight 重新计算
 	struct skynet_message msg;
 
 	for (i=0;i<n;i++) {
 		if (skynet_mq_pop(q,&msg)) {
+			// 队列空 → 释放 ctx → 取下一个服务
 			skynet_context_release(ctx);
 			return skynet_globalmq_pop();
 		} else if (i==0 && weight >= 0) {
+			// 首次 pop 后，根据 weight 计算本次批处理数量
+			// n = length / 2^weight
 			n = skynet_mq_length(q);
 			n >>= weight;
 		}
+
+		// 过载检测
 		int overload = skynet_mq_overload(q);
 		if (overload) {
 			skynet_error(ctx, "error: May overload, message queue length = %d", overload);
 		}
 
+		// watchdog 触发：记录当前消息的 source 和 destination
 		skynet_monitor_trigger(sm, msg.source , handle);
 
+		// 分发消息
 		if (ctx->cb == NULL) {
-			skynet_free(msg.data);
+			skynet_free(msg.data);       // 无回调，直接丢弃
 		} else {
-			dispatch_message(ctx, &msg);
+			dispatch_message(ctx, &msg); // 调用回调
 		}
 
+		// watchdog 复位：处理完毕
 		skynet_monitor_trigger(sm, 0,0);
 	}
 
+	// ── 步骤 4：公平调度 ──
 	assert(q == ctx->queue);
 	struct message_queue *nq = skynet_globalmq_pop();
 	if (nq) {
-		// If global mq is not empty , push q back, and return next queue (nq)
-		// Else (global mq is empty or block, don't push q back, and return q again (for next dispatch)
+		// 全局队列非空：当前队列放回队尾（让其他服务也有机会执行）
 		skynet_globalmq_push(q);
-		q = nq;
+		q = nq;                     // 返回下一个要处理的服务队列
 	}
+	// 否则 nq==NULL：全局队列为空，继续返回当前 q（可能有新消息进来）
 	skynet_context_release(ctx);
 
 	return q;
@@ -671,11 +780,24 @@ skynet_command(struct skynet_context * context, const char * cmd , const char * 
 	return NULL;
 }
 
+/**
+ * _filter_args — 消息发送前的预处理
+ *
+ * 三步处理：
+ *   1. 剥离 TAG 标记：type &= 0xff → 纯消息类型（PTYPE_*）
+ *   2. 深拷贝数据：防止发送方释放后数据失效（除非 PTYPE_TAG_DONTCOPY）
+ *   3. 类型编码：type 写入 sz 高 8 位 → sz |= (size_t)type << MESSAGE_TYPE_SHIFT
+ *
+ * @param type     含 TAG 标记的类型（PTYPE_TAG_DONTCOPY / PTYPE_TAG_ALLOCSESSION）
+ * @param session  输入 0，若 ALLOCSESSION 则自动分配
+ * @param data     输入原始指针，输出可能为深拷贝后的新指针
+ * @param sz       输入数据长度，输出编码了类型后的 sz
+ */
 static void
 _filter_args(struct skynet_context * context, int type, int *session, void ** data, size_t * sz) {
-	int needcopy = !(type & PTYPE_TAG_DONTCOPY);
-	int allocsession = type & PTYPE_TAG_ALLOCSESSION;
-	type &= 0xff;
+	int needcopy = !(type & PTYPE_TAG_DONTCOPY);      // 默认拷贝，DONTCOPY 则零拷贝
+	int allocsession = type & PTYPE_TAG_ALLOCSESSION;  // 自动分配 session
+	type &= 0xff;   // 剥离高位的 TAG，只保留低 8 位纯类型
 
 	if (allocsession) {
 		assert(*session == 0);
@@ -683,15 +805,35 @@ _filter_args(struct skynet_context * context, int type, int *session, void ** da
 	}
 
 	if (needcopy && *data) {
+		// 深拷贝：+1 用于 '\0' 结尾（方便字符串处理）
 		char * msg = skynet_malloc(*sz+1);
 		memcpy(msg, *data, *sz);
 		msg[*sz] = '\0';
 		*data = msg;
 	}
 
+	// 编码：将消息类型写入 sz 高 8 位
+	// 解码见 dispatch_message: type = sz >> SHIFT, len = sz & MASK
 	*sz |= (size_t)type << MESSAGE_TYPE_SHIFT;
 }
 
+/**
+ * skynet_send — 发送消息的最终 C 入口
+ *
+ * 职责：
+ *   - 检查消息大小是否合法
+ *   - 调用 _filter_args 做拷贝 + 编码
+ *   - 判断目标节点：本地 → context_push，远程 → harbor_send
+ *   - dest==0 的特殊用法：仅分配 session，不真正发送（genid）
+ *
+ * @param source       发送方 handle（0 表示用 context->handle）
+ * @param destination  目标 handle（0 表示只分配 session）
+ * @param type         消息类型 + TAG 标记
+ * @param session      会话 ID（ALLOCSESSION 时自动分配）
+ * @param data         消息体数据指针
+ * @param sz           数据长度
+ * @return             session id（>=0），失败返回 -1 或 -2
+ */
 int
 skynet_send(struct skynet_context * context, uint32_t source, uint32_t destination , int type, int session, void * data, size_t sz) {
 	if ((sz & MESSAGE_TYPE_MASK) != sz) {
