@@ -1,0 +1,14 @@
+login 1 {
+	response {
+		code 0 : integer
+		subid 1 : string
+	}
+}
+
+register 2 {
+	response {
+		code 0 : integer
+	}
+}
+
+heartbeat 3 {}

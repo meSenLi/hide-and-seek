@@ -1,9 +1,9 @@
 include platform.mk
 
-LUA_CLIB_PATH ?= luaclib
-CSERVICE_PATH ?= cservice
+LUA_CLIB_PATH ?= bin/luaclib
+CSERVICE_PATH ?= bin/cservice
 
-SKYNET_BUILD_PATH ?= .
+SKYNET_BUILD_PATH ?= bin
 
 CFLAGS = -g -O0 -Wall -I$(LUA_INC) $(MYCFLAGS)
 # CFLAGS += -DUSE_PTHREAD_LOCK

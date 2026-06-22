@@ -1,0 +1,38 @@
+-- config/config.lua
+-- 躲猫猫派对游戏 — 统一配置
+-- 同时作为 skynet 启动配置 和 游戏业务配置模块
+-- 启动: ./skynet
+
+root = "./"
+luaservice = root.."service/?.lua;"..root.."script/?.lua;"..root.."script/service/?.lua"
+lualoader = root .. "lualib/loader.lua"
+lua_path = root.."?.lua;"..root.."lualib/?.lua;"..root.."lualib/?/init.lua;"..root.."script/?.lua"
+lua_cpath = root .. "bin/luaclib/?.so"
+snax = root.."service/?.lua;"..root.."script/service/?.lua"
+cpath = root.."bin/cservice/?.so"
+
+thread = 8
+harbor = 0
+
+logger = "log/game.log"
+
+start = "main"
+bootstrap = "snlua bootstrap"
+daemon = "./bin/skynet.pid"
+-- ======== 游戏业务配置 ========
+local M = {}
+
+M.mongo = {
+	host = "127.0.0.1",
+	port = 27017,
+	db = "hideandseek",
+}
+
+M.login_port = 8001
+M.gate_port = 8888
+M.gate_maxclient = 512
+M.gate_name = "hideandseek"
+
+M.multilogin = false
+
+return M
