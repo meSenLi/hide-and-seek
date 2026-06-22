@@ -54,7 +54,7 @@ local function send_request(name, args)
 	session = session + 1
 	local str = request(name, args, session)
 	send_package(fd, str)
-	print("Request:", session)
+	print("Request:", session, name, args)
 end
 
 local last = ""

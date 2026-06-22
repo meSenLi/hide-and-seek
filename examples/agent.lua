@@ -79,7 +79,7 @@ function CMD.start(conf)
 	skynet.fork(function()
 		while true do
 			send_package(send_request "heartbeat")
-			skynet.sleep(500)
+			skynet.sleep(5000)
 		end
 	end)
 

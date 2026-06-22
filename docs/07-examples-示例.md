@@ -2,6 +2,31 @@
 
 > 示例代码位于 `examples/` 目录下，展示了 Skynet 的典型用法。
 
+## 目录
+
+- [文件清单](#文件清单)
+- [一、配置系统 (`config`)](#一配置系统-config)
+  - [主配置文件示例](#主配置文件示例)
+  - [集群示例配置 (`config.c1`)](#集群示例配置-configc1)
+- [二、`main.lua` — 主服务入口](#二mainlua--主服务入口)
+- [三、架构：watchdog → gate → agent](#三架构watchdog--gate--agent)
+  - [典型服务拓扑](#典型服务拓扑)
+  - [`watchdog.lua` — 看门狗](#watchdoglua--看门狗)
+  - [`agent.lua` — 业务代理](#agentlua--业务代理)
+- [四、`simpledb.lua` — 简单数据库](#四simpledblua--简单数据库)
+- [五、`client.lua` — Lua 客户端](#五clientlua--lua-客户端)
+- [六、其他示例](#六其他示例)
+  - [`simpleweb.lua` — HTTP 服务](#simpleweblua--http-服务)
+  - [`simplewebsocket.lua` — WebSocket](#simplewebsocketlua--websocket)
+  - [`simplemonitor.lua` — 监控](#simplemonitorlua--监控)
+  - [`globallog.lua` — 全局日志](#globalloglua--全局日志)
+  - [`cluster1.lua` / `cluster2.lua` — 集群](#cluster1lua--cluster2lua--集群)
+  - [`main_mysql.lua` / `main_mongodb.lua` — 数据库](#main_mysqllua--main_mongodblua--数据库)
+- [七、完整启动流程示例](#七完整启动流程示例)
+- [八、示例中的完整服务通信链](#八示例中的完整服务通信链)
+
+---
+
 ## 文件清单
 
 | 文件 | 职责 |

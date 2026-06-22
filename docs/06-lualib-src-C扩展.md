@@ -2,6 +2,30 @@
 
 > 供 Lua 调用的 C 扩展库，编译为 `.so` 动态库（放在 `luaclib/` 目录下），源文件位于 `lualib-src/` 目录下。
 
+## 目录
+
+- [文件清单](#文件清单)
+- [一、`lua-skynet.c` — skynet.core ★](#一lua-skynetc--skynetcore)
+  - [提供的 Lua 函数](#提供的-lua-函数)
+  - [消息回调桥接](#消息回调桥接)
+  - [回调安全机制](#回调安全机制)
+  - [时间函数](#时间函数)
+- [二、`lua-socket.c` — Socket 底层](#二lua-socketc--socket-底层)
+- [三、`lua-netpack.c` — 网络封包](#三lua-netpackc--网络封包)
+- [四、`lua-cluster.c` — 集群协议](#四lua-clusterc--集群协议)
+- [五、`lua-sharedata.c` — 共享数据](#五lua-sharedatac--共享数据)
+- [六、`lua-sharetable.c` — 共享表](#六lua-sharetablec--共享表)
+- [七、其他模块](#七其他模块)
+  - [`lua-mongo.c` + `lua-bson.c` — MongoDB 驱动](#lua-mongoc--lua-bsonc--mongodb-驱动)
+  - [`lua-memory.c` — 内存统计](#lua-memoryc--内存统计)
+  - [`lua-crypt.c` — 加密工具](#lua-cryptc--加密工具)
+  - [`lua-stm.c` — 软件事务内存](#lua-stmc--软件事务内存)
+  - [`lua-debugchannel.c` — 调试通道](#lua-debugchannelc--调试通道)
+  - [`lua-datasheet.c` — 数据表](#lua-datasheetc--数据表)
+  - [`lua-multicast.c` — 多播](#lua-multicastc--多播)
+
+---
+
 ## 文件清单
 
 | 文件 | 提供的 Lua 模块 | 职责 |

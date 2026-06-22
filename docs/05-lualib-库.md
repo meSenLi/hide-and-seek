@@ -2,6 +2,30 @@
 
 > Skynet 的 Lua API 和工具库，是业务开发者最常接触的层面。源文件位于 `lualib/` 目录下。
 
+## 目录
+
+- [文件清单](#文件清单)
+  - [lualib/skynet/ 子模块](#lualibskynet-子模块)
+  - [lualib/snax/ 子模块](#lualibsnax-子模块)
+  - [lualib/http/ 子模块](#lualibhttp-子模块)
+- [一、`skynet.lua` — 核心 Lua API ★](#一skynetlua--核心-lua-api)
+  - [1.1 消息类型常量](#11-消息类型常量)
+  - [1.2 Session 管理系统](#12-session-管理系统)
+  - [1.3 Session 回绕安全（Danger Zone）](#13-session-回绕安全danger-zone)
+  - [1.4 核心 API](#14-核心-api)
+  - [1.5 `skynet.call` 实现](#15-skynetcall-实现)
+  - [1.6 消息分发主循环](#16-消息分发主循环)
+- [二、`skynet/manager.lua` — 服务管理](#二skynetmanagerlua--服务管理)
+  - [`newservice` 流程](#newservice-流程)
+- [三、`skynet/socket.lua` — Socket 操作](#三skynetsocketlua--socket-操作)
+- [四、`skynet/queue.lua` — 消息队列化](#四skynetqueuelua--消息队列化)
+- [五、`skynet/cluster.lua` — 集群 RPC](#五skynetclusterlua--集群-rpc)
+- [六、`snax/gateserver.lua` — Gate 服务器框架](#六snaxgateserverlua--gate-服务器框架)
+- [七、`http/httpd.lua` — HTTP 服务器](#七httphttpdlua--http-服务器)
+- [八、`loader.lua` — 模块加载器](#八loaderlua--模块加载器)
+
+---
+
 ## 文件清单
 
 | 文件 | 职责 |

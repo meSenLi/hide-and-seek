@@ -2,6 +2,33 @@
 
 > Lua 编写的内置服务，由 `snlua` 加载执行。源文件位于 `service/` 目录下。
 
+## 目录
+
+- [文件清单](#文件清单)
+- [一、`bootstrap.lua` — 启动引导 ★](#一bootstraplua--启动引导)
+  - [启动流程](#启动流程)
+  - [关键设计](#关键设计)
+- [二、`launcher.lua` — 服务管理器 ★](#二launcherlua--服务管理器)
+  - [核心数据结构](#核心数据结构)
+  - [命令集](#命令集)
+  - [LAUNCH 流程](#launch-流程)
+  - [服务退出](#服务退出)
+- [三、`gate.lua` — Lua 层网关](#三gatelua--lua-层网关)
+- [四、`snaxd.lua` — Snax 框架宿主](#四snaxdlua--snax-框架宿主)
+- [五、集群相关服务](#五集群相关服务)
+  - [`cmaster.lua` — 集群主节点](#cmasterlua--集群主节点)
+  - [`cslave.lua` — 集群从节点](#cslavelua--集群从节点)
+  - [`clusterd.lua` — 集群守护](#clusterdlua--集群守护)
+  - [`clusteragent.lua` / `clusterproxy.lua` / `clustersender.lua`](#clusteragentlua--clusterproxylua--clustersenderlua)
+- [六、`console.lua` — 调试控制台](#六consolelua--调试控制台)
+- [七、`debug_console.lua` — Web 调试控制台](#七debug_consolelua--web-调试控制台)
+- [八、`datacenterd.lua` — 数据中心](#八datacenterdlua--数据中心)
+- [九、`sharedatad.lua` — 共享数据服务](#九sharedatadlua--共享数据服务)
+- [十、`multicastd.lua` — 多播服务](#十multicastdlua--多播服务)
+- [十一、其他服务](#十一其他服务)
+
+---
+
 ## 文件清单
 
 | 文件 | 职责 |

@@ -4,6 +4,46 @@
 
 ---
 
+## 目录
+
+- [一、Lua 虚拟机基础概念速览](#一lua-虚拟机基础概念速览)
+  - [1.1 什么是 `lua_State`](#11-什么是-lua_state)
+  - [1.2 协程（Coroutine / Lua Thread）](#12-协程coroutine--lua-thread)
+  - [1.3 注册表（Registry）](#13-注册表registry)
+  - [1.4 自定义内存分配器](#14-自定义内存分配器)
+  - [1.5 GC（垃圾回收）](#15-gc垃圾回收)
+  - [1.6 Debug Hook（钩子）](#16-debug-hook钩子)
+- [二、Skynet 中有三处 `lua_State`](#二skynet-中有三处-lua_state)
+  - [2.1 对比表](#21-对比表)
+- [三、核心：`service_snlua.c` — Lua 服务宿主](#三核心service_snluac--lua-服务宿主)
+  - [3.1 数据结构](#31-数据结构)
+  - [3.2 生命周期](#32-生命周期)
+  - [3.3 内存管理 — `lalloc()`](#33-内存管理--lalloc)
+  - [3.4 协程调度 — `lua_resumeX()`](#34-协程调度--lua_resumex)
+  - [3.5 信号/调试支持](#35-信号调试支持)
+- [四、`skynet_env.c` — 环境变量的 Lua 存储](#四skynet_envc--环境变量的-lua-存储)
+  - [特点](#特点)
+  - [为什么用 Lua VM 存环境变量？](#为什么用-lua-vm-存环境变量)
+  - [使用方式](#使用方式)
+- [五、`main()` 中的临时 Lua 虚拟机](#五main-中的临时-lua-虚拟机)
+  - [完整的配置加载流程](#完整的配置加载流程)
+  - [`load_config` 脚本](#load_config-脚本)
+  - [为什么用完就关？](#为什么用完就关)
+- [六、`lua-skynet.c` — C API 绑定（`skynet.core`）](#六lua-skynetc--c-api-绑定skynetcore)
+  - [6.1 需要 context 的函数（有 skynet_context 上值）](#61-需要-context-的函数有-skynet_context-上值)
+  - [6.2 不需要 context 的函数](#62-不需要-context-的函数)
+  - [6.3 `lcallback` — 消息分发桥接](#63-lcallback--消息分发桥接)
+- [七、`skynet.lua` — Lua 服务高级 API](#七skynetlua--lua-服务高级-api)
+  - [7.1 核心 API 速查](#71-核心-api-速查)
+  - [7.2 `skynet.call` 实现原理](#72-skynetcall-实现原理)
+  - [7.3 协程池（Coroutine Pool）](#73-协程池coroutine-pool)
+- [八、Lua 5.5 修改版](#八lua-55-修改版)
+  - [两个核心改动](#两个核心改动)
+- [九、协程调度机制总结](#九协程调度机制总结)
+- [十、关键文件索引](#十关键文件索引)
+
+---
+
 ## 一、Lua 虚拟机基础概念速览
 
 ### 1.1 什么是 `lua_State`
