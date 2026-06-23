@@ -13,6 +13,9 @@ skynet.start(function()
 	skynet.error("[main] starting accountdb...")
 	local adb = skynet.newservice("accountdb")
 
+	skynet.error("[main] starting agentdb...")
+	skynet.newservice("agentdb")
+
 	skynet.error("[main] starting protoloader...")
 	skynet.newservice("protoloader")
 

@@ -16,7 +16,7 @@ function CMD.open(source, conf, accountdb_addr)
 end
 function CMD.forward(source, fd, uid, subid)
 	local c = connections[fd]; if not c then return end
-	local agent = skynet.newservice("agent")
+	local agent = skynet.newservice("agent_layered")
 	skynet.call(agent, "lua", "start", {gate=gate, client=fd, uid=uid, subid=subid})
 	c.agent = agent; c.account = nil
 	skynet.error(string.format("[gated] %s -> agent=%s", uid, skynet.address(agent)))
