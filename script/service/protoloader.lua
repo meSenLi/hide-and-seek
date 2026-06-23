@@ -5,11 +5,15 @@
 local skynet = require "skynet"
 local sprotoparser = require "sprotoparser"
 local sprotoloader = require "sprotoloader"
+local config = require "config.config"
 
 -- 协议文件列表 { 文件名, slot_id }
+local slot = config.proto_slot
 local proto_files = {
-	{ "config/proto/common.sproto", 1 },
-	{ "config/proto/login.sproto",  2 },
+	{ "config/proto/common.sproto", slot.common },
+	{ "config/proto/login.sproto",  slot.login },
+	{ "config/proto/game.sproto",   slot.game },
+	{ "config/proto/push.sproto",   slot.push },
 }
 
 skynet.start(function()

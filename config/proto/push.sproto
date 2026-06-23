@@ -1,0 +1,14 @@
+# config/proto/push.sproto
+# 服务端 -> 客户端 的主动推送（s2c，无 response）
+
+.package {
+	type 0 : integer
+	session 1 : integer
+}
+
+push 1 {
+	request {
+		channel 0 : string
+		content 1 : string
+	}
+}

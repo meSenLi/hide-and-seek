@@ -1,0 +1,39 @@
+# config/proto/game.sproto
+# 登录后客户端 -> 服务端 的 RPC 请求/响应（c2s）
+
+.package {
+	type 0 : integer
+	session 1 : integer
+}
+
+heartbeat 1 {
+	response {
+		time 0 : integer
+	}
+}
+
+ping 2 {
+	request {
+		msg 0 : string
+	}
+	response {
+		msg 0 : string
+	}
+}
+
+echo 3 {
+	request {
+		content 0 : string
+	}
+	response {
+		content 0 : string
+	}
+}
+
+get_userinfo 4 {
+	response {
+		userid 0 : string
+		subid 1 : string
+		login_time 2 : integer
+	}
+}

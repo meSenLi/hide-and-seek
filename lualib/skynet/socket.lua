@@ -1,10 +1,19 @@
+-- lualib/skynet/socket.lua
+-- Skynet socket 高层封装：把底层 socketdriver 的异步事件，
+-- 包装成基于协程的“同步阻塞”读写 API（open/read/readline/listen 等）。
+-- 核心机制：每个 fd 对应一个 socket 对象(s)，读写时挂起当前协程(suspend)，
+-- 待 socket 线程投递事件(socket_message[type]) 后 wakeup 恢复协程。
+
 local driver = require "skynet.socketdriver"
 local skynet = require "skynet"
 local skynet_core = require "skynet.core"
 local assert = assert
 
+-- 单个 socket 缓冲超过此阈值(128K)时暂停接收(pause)，防止内存膨胀
 local BUFFER_LIMIT = 128 * 1024
 local socket = {}	-- api
+-- 所有 socket 对象表：id(fd) -> socket 对象 s
+-- 设置 __gc：服务退出/GC 时自动关闭残留连接
 local socket_pool = setmetatable( -- store all socket object
 	{},
 	{ __gc = function(p)
@@ -16,9 +25,10 @@ local socket_pool = setmetatable( -- store all socket object
 	}
 )
 
-local socket_onclose = {}
-local socket_message = {}
+local socket_onclose = {}	-- id -> 关闭回调
+local socket_message = {}	-- socket 事件类型 -> 处理函数(见下方 1~7)
 
+-- 唤醒挂在该 socket 上等待的协程（读/连接完成时调用）
 local function wakeup(s)
 	local co = s.co
 	if co then
@@ -27,6 +37,7 @@ local function wakeup(s)
 	end
 end
 
+-- 暂停接收：缓冲过大时通知底层停止读，避免内存无限增长
 local function pause_socket(s, size)
 	if s.pause ~= nil then
 		return
@@ -41,6 +52,8 @@ local function pause_socket(s, size)
 	skynet.yield()	-- there are subsequent socket messages in mqueue, maybe.
 end
 
+-- ★核心：挂起当前协程，等待 socket 事件唤醒
+-- 记录协程到 s.co；若处于 pause 状态则先恢复接收(driver.start)再等待
 local function suspend(s)
 	assert(not s.co)
 	s.co = coroutine.running()
@@ -59,8 +72,10 @@ local function suspend(s)
 	end
 end
 
+-- ======== socket 事件处理表：对应底层 SKYNET_SOCKET_TYPE_* ========
 -- read skynet_socket.h for these macro
 -- SKYNET_SOCKET_TYPE_DATA = 1
+-- 收到数据：push 进缓冲，按 read_required(数字=按长度/字符串=按分隔符) 判断是否满足读请求并唤醒
 socket_message[1] = function(id, size, data)
 	local s = socket_pool[id]
 	if s == nil then
@@ -103,6 +118,7 @@ socket_message[1] = function(id, size, data)
 end
 
 -- SKYNET_SOCKET_TYPE_CONNECT = 2
+-- 连接成功：标记 connected 并唤醒等待 connect 的协程；listen socket 则记录实际 addr/port
 socket_message[2] = function(id, ud , addr)
 	local s = socket_pool[id]
 	if s == nil then
@@ -120,6 +136,7 @@ socket_message[2] = function(id, ud , addr)
 end
 
 -- SKYNET_SOCKET_TYPE_CLOSE = 3
+-- 连接关闭：置 connected=false 唤醒读协程；触发 onclose 回调
 socket_message[3] = function(id)
 	local s = socket_pool[id]
 	if s then
@@ -136,6 +153,7 @@ socket_message[3] = function(id)
 end
 
 -- SKYNET_SOCKET_TYPE_ACCEPT = 4
+-- listen socket 接到新连接：回调 s.callback(newid, addr) 交业务处理
 socket_message[4] = function(id, newid, addr)
 	local s = socket_pool[id]
 	if s == nil then
@@ -146,6 +164,7 @@ socket_message[4] = function(id, newid, addr)
 end
 
 -- SKYNET_SOCKET_TYPE_ERROR = 5
+-- 出错：区分 accept 错误/连接中错误/已连接错误，置 connected=false 并唤醒
 socket_message[5] = function(id, _, err)
 	local s = socket_pool[id]
 	if s == nil then
@@ -169,6 +188,7 @@ socket_message[5] = function(id, _, err)
 end
 
 -- SKYNET_SOCKET_TYPE_UDP = 6
+-- 收到 UDP 包：拷为字符串后回调 s.callback(str, address)
 socket_message[6] = function(id, size, data, address)
 	local s = socket_pool[id]
 	if s == nil or s.callback == nil then
@@ -181,6 +201,7 @@ socket_message[6] = function(id, size, data, address)
 	s.callback(str, address)
 end
 
+-- 默认发送缓冲告警：待发数据堆积时打印 WARNING
 local function default_warning(id, size)
 	local s = socket_pool[id]
 	if not s then
@@ -190,6 +211,7 @@ local function default_warning(id, size)
 end
 
 -- SKYNET_SOCKET_TYPE_WARNING
+-- 发送缓冲堆积告警：调用 s.on_warning 或默认处理
 socket_message[7] = function(id, size)
 	local s = socket_pool[id]
 	if s then
@@ -198,6 +220,8 @@ socket_message[7] = function(id, size)
 	end
 end
 
+-- 注册 socket 协议：底层投递的 PTYPE_SOCKET 消息经 unpack 解出事件类型 t，
+-- 再分发到上面的 socket_message[t]
 skynet.register_protocol {
 	name = "socket",
 	id = skynet.PTYPE_SOCKET,	-- PTYPE_SOCKET = 6
@@ -207,6 +231,8 @@ skynet.register_protocol {
 	end
 }
 
+-- 内部通用建链：创建 socket 对象入池，挂起等待 connect 结果
+-- func 非 nil 表示 listen 模式(accept 回调)，此时不分配读缓冲
 local function connect(id, func)
 	local newbuffer
 	if func == nil then
@@ -240,25 +266,30 @@ local function connect(id, func)
 	end
 end
 
+-- 主动连接远端 addr:port，返回 fd（失败返回 nil, err）
 function socket.open(addr, port)
 	local id = driver.connect(addr,port)
 	return connect(id)
 end
 
+-- 绑定一个已有的系统 fd
 function socket.bind(os_fd)
 	local id = driver.bind(os_fd)
 	return connect(id)
 end
 
+-- 绑定标准输入(fd=0)
 function socket.stdin()
 	return socket.bind(0)
 end
 
+-- 启动一个 fd 的收发：func 为 accept 回调则作为 listen 服务端使用
 function socket.start(id, func)
 	driver.start(id)
 	return connect(id, func)
 end
 
+-- 主动暂停接收
 function socket.pause(id)
 	local s = socket_pool[id]
 	if s == nil then
@@ -267,6 +298,7 @@ function socket.pause(id)
 	pause_socket(s)
 end
 
+-- 半关闭：通知底层 shutdown，后续会收到 CLOSE 事件
 function socket.shutdown(id)
 	local s = socket_pool[id]
 	if s then
@@ -275,11 +307,13 @@ function socket.shutdown(id)
 	end
 end
 
+-- 关闭一个不在池中的裸 fd（池中的请用 socket.close）
 function socket.close_fd(id)
 	assert(socket_pool[id] == nil,"Use socket.close instead")
 	driver.close(id)
 end
 
+-- 关闭连接：若另有协程正在读，需等其读完缓冲后再清理，避免丢数据
 function socket.close(id)
 	local s = socket_pool[id]
 	if s == nil then
@@ -302,6 +336,8 @@ function socket.close(id)
 	socket_pool[id] = nil
 end
 
+-- 读取：sz 为 nil 读当前可用数据；否则读满 sz 字节。不足则挂起等待
+-- 返回数据；连接断开返回 false, 剩余数据
 function socket.read(id, sz)
 	local s = socket_pool[id]
 	assert(s)
@@ -345,6 +381,7 @@ function socket.read(id, sz)
 	end
 end
 
+-- 读到连接关闭为止，返回全部数据
 function socket.readall(id)
 	local s = socket_pool[id]
 	assert(s)
@@ -359,6 +396,7 @@ function socket.readall(id)
 	return driver.readall(s.buffer, s.pool)
 end
 
+-- 按分隔符 sep(默认 "\n") 读一行；不足则挂起等待
 function socket.readline(id, sep)
 	sep = sep or "\n"
 	local s = socket_pool[id]
@@ -380,6 +418,7 @@ function socket.readline(id, sep)
 	end
 end
 
+-- 阻塞直到有数据可读（read_required=0），用于探测连接是否仍可用
 function socket.block(id)
 	local s = socket_pool[id]
 	if not s or not s.connected then
@@ -391,14 +430,17 @@ function socket.block(id)
 	return s.connected
 end
 
+-- 发送相关 API 直接映射底层 driver（无需挂起协程）
 socket.write = assert(driver.send)
 socket.lwrite = assert(driver.lsend)
 socket.header = assert(driver.header)
 
+-- fd 是否已不在池中（无效）
 function socket.invalid(id)
 	return socket_pool[id] == nil
 end
 
+-- 是否已断开（既未连接也未在连接中）
 function socket.disconnected(id)
 	local s = socket_pool[id]
 	if s then
@@ -406,6 +448,7 @@ function socket.disconnected(id)
 	end
 end
 
+-- 监听端口：挂起等待底层返回实际 addr/port，返回 id, addr, port
 function socket.listen(host, port, backlog)
 	local id = driver.listen(host, port, backlog)
 	local s = {
@@ -421,6 +464,7 @@ end
 
 -- abandon use to forward socket id to other service
 -- you must call socket.start(id) later in other service
+-- 放弃本服务对 fd 的管理（用于把连接转交给另一个服务，如 gate->agent）
 function socket.abandon(id)
 	local s = socket_pool[id]
 	if s then
@@ -431,6 +475,7 @@ function socket.abandon(id)
 	end
 end
 
+-- 设置该 fd 的接收缓冲上限
 function socket.limit(id, limit)
 	local s = assert(socket_pool[id])
 	s.buffer_limit = limit
@@ -438,6 +483,7 @@ end
 
 ---------------------- UDP
 
+-- 创建 UDP socket 对象（UDP 无连接，直接 connected=true）
 local function create_udp_object(id, cb)
 	assert(not socket_pool[id], "socket is not closed")
 	socket_pool[id] = {
@@ -448,12 +494,14 @@ local function create_udp_object(id, cb)
 	}
 end
 
+-- 创建 UDP socket，callback 处理收到的包
 function socket.udp(callback, host, port)
 	local id = driver.udp(host, port)
 	create_udp_object(id, callback)
 	return id
 end
 
+-- 为 UDP socket 设置默认目标地址
 function socket.udp_connect(id, addr, port, callback)
 	local obj = socket_pool[id]
 	if obj then
@@ -467,12 +515,14 @@ function socket.udp_connect(id, addr, port, callback)
 	driver.udp_connect(id, addr, port)
 end
 
+-- 监听 UDP 端口
 function socket.udp_listen(addr, port, callback)
 	local id = driver.udp_listen(addr, port)
 	create_udp_object(id, callback)
 	return id
 end
 
+-- 连接 UDP 远端
 function socket.udp_dial(addr, port, callback)
 	local id = driver.udp_dial(addr, port)
 	create_udp_object(id, callback)
@@ -484,12 +534,14 @@ socket.udp_address = assert(driver.udp_address)
 socket.netstat = assert(driver.info)
 socket.resolve = assert(driver.resolve)
 
+-- 注册发送缓冲堆积告警回调
 function socket.warning(id, callback)
 	local obj = socket_pool[id]
 	assert(obj)
 	obj.on_warning = callback
 end
 
+-- 注册连接关闭回调
 function socket.onclose(id, callback)
 	socket_onclose[id] = callback
 end

@@ -413,7 +413,75 @@ _cb(ctx, cb_ud, type, session, source, msg, sz)
 | `skynet.getenv(key)` | 获取环境变量 |
 | `skynet.profile.start/stop()` | 协程 CPU 计时 |
 
-### 7.2 `skynet.call` 实现原理
+### 7.2 Lua 服务起服时 C↔Lua 交互流程
+
+起服核心是 **两次 callback 注册** 与 **消息驱动**：`snlua_init` 先用 `launch_cb` 收首条消息触发加载，再由 `skynet.start` 经 `c.callback` 注册真正的 `_cb` 回调；而 `start_func` 不立即执行，挂在 `timeout(0)` 上等服务进入正常消息循环后才跑，从而保证其内部可安全使用 `skynet.call` 等阻塞 API。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant W as Worker线程
+    participant SV as skynet_server.c
+    participant SN as service_snlua.c (C)
+    participant LD as loader.lua
+    participant SC as 服务脚本<br/>(bootstrap.lua)
+    participant SK as skynet.lua (Lua)
+    participant LS as lua-skynet.c (C)
+    participant TM as 定时器
+
+    Note over SV: 阶段1 创建服务实例
+    SV->>SN: skynet_module_instance_create() → snlua_create
+    SV->>SN: skynet_module_instance_init() → snlua_init
+    activate SN
+    SN->>SV: skynet_callback(ctx, l, launch_cb)<br/>注册①: ctx->cb = launch_cb
+    SN->>SV: skynet_send(self, 首条消息)
+    deactivate SN
+    SV->>SV: ctx->init=true<br/>globalmq_push(queue)
+
+    Note over W: 阶段2 worker 驱动首条消息
+    W->>SV: dispatch_message → ctx->cb
+    SV->>SN: launch_cb()
+    activate SN
+    SN->>SV: skynet_callback(ctx, NULL, NULL) 清空 cb
+    SN->>SN: init_cb()
+    SN->>LD: luaL_loadfile + lua_pcall(loader.lua)
+    activate LD
+
+    Note over LD,SC: 阶段3 加载并运行服务脚本
+    LD->>SC: loadfile(服务文件) → main(...)
+    activate SC
+    SC->>SK: skynet.start(start_func)
+    activate SK
+    SK->>LS: c.callback(skynet.dispatch_message)
+    LS->>SV: skynet_callback(ctx, cb_ctx, _cb_pre)<br/>注册②: ctx->cb = _cb_pre
+    SK->>TM: skynet.timeout(0, fn) 注册 0 延时
+    deactivate SK
+    SC-->>LD: 顶层执行完毕
+    deactivate SC
+    LD-->>SN: lua_pcall 返回
+    deactivate LD
+    SN-->>SV: init_cb 返回 (首条消息处理完)
+    deactivate SN
+
+    Note over W,TM: 阶段4 定时器触发真正启动
+    TM->>SV: 0 tick 到 → 发消息给 self
+    W->>SV: dispatch_message → ctx->cb
+    SV->>LS: _cb_pre → _cb (lua_pcall)
+    LS->>SK: 进入 dispatch_message → 唤醒 timeout 协程
+    activate SK
+    SK->>SK: init_service(start_func)
+    SK->>SK: skynet_require.init_all()
+    SK->>SC: start_func() 真正业务启动
+    SK->>SV: skynet.send(".launcher", "LAUNCHOK")
+    deactivate SK
+```
+
+**关键点：**
+- **两次 callback 注册，逐步替换 `ctx->cb`**：`snlua_init` 先注册 `launch_cb`，仅为收首条消息触发加载；`launch_cb` 立即清空 cb 再跑 `init_cb`；Lua 端 `skynet.start` 经 `c.callback`→`lcallback` 注册 `_cb_pre`，这才是后续所有消息的真正回调。
+- **`start_func` 延迟执行**：`skynet.start` 只挂 `timeout(0)`，等加载结束、服务进入正常消息循环后由定时器消息驱动 `_cb` → 唤醒协程 → `init_service` → `start_func`。
+- **C↔Lua 边界**：C→Lua 经 `lua_pcall`（跑 `loader.lua` 与消息分发）；Lua→C 经 `c.callback`、`skynet.timeout`、`skynet.send` 等回到 C API。
+
+### 7.3 `skynet.call` 实现原理
 
 ```mermaid
 sequenceDiagram
@@ -435,7 +503,7 @@ sequenceDiagram
     A->>A: coroutine.resume(co, true, msg)  ← 恢复
 ```
 
-### 7.3 协程池（Coroutine Pool）
+### 7.4 协程池（Coroutine Pool）
 
 `skynet.fork` 和消息分发都使用 **协程池** 来减少 `coroutine.create` 的开销：
 

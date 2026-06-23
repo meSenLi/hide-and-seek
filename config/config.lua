@@ -35,4 +35,12 @@ M.gate_name = "hideandseek"
 
 M.multilogin = false
 
+-- 协议 slot 分配（protoloader 与各服务共用）
+M.proto_slot = {
+	common = 1,
+	login  = 2,
+	game   = 3,
+	push   = 4,
+}
+
 return M
