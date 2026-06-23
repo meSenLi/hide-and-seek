@@ -17,6 +17,24 @@ local agent = {
     systems = {},
 }
 
+local rpc = {}
+
+function rpc.heartbeat(args)
+    return { time = os.time() }
+end
+
+function rpc.ping(args)
+    return { msg = args and args.msg or "" }
+end
+
+function rpc.echo(args)
+    return { content = args and args.content or "" }
+end
+
+function rpc.get_userinfo(args)
+    return { userid = agent.uid, subid = agent.subid, login_time = agent.login_time }
+end
+
 local function init_systems()
     agent.systems.inventory = system_inventory
     system_inventory:init(agent)
@@ -38,6 +56,7 @@ function CMD.start(source, conf)
     init_systems()
 
     session:bind_protocol(protocol)
+    session:use_rpc(rpc)
     session:start()
 end
 
@@ -51,9 +70,4 @@ function CMD.push(source, channel, content)
     protocol:send("push", { channel = channel, content = content })
 end
 
-skynet.start(function()
-    skynet.dispatch("lua", function(session_id, source, command, ...)
-        local f = assert(CMD[command])
-        skynet.ret(skynet.pack(f(source, ...)))
-    end)
-end)
+return CMD

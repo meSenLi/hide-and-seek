@@ -1,8 +1,25 @@
+local skynet = require "skynet"
+
 local inventory = {
     items = {},
     agent = nil,
 }
 
+inventory.rpc = {}
+
+function inventory.rpc.add_item(args)
+    if args and args.id then
+        inventory.items[args.id] = { id = args.id, name = args.name }
+        return { ok = 1 }
+    end
+    return { ok = 0 }
+end
+
+function inventory.rpc.get_inventory(args)
+    return { count = #inventory.items }
+end
+
+-- ====== lifecycle ======
 function inventory:init(agent)
     self.agent = agent
     self.items = {}
@@ -11,20 +28,6 @@ function inventory:init(agent)
             self.agent.protocol:send("push", { channel = "inventory", content = "inventory ready" })
         end
     end)
-end
-
-function inventory:handle_request(name, args)
-    if name == "add_item" then
-        local item = args and args.item or {}
-        if item.id then
-            self.items[item.id] = item
-            return { ok = true, added = item.id }
-        end
-        return { ok = false }
-    elseif name == "get_inventory" then
-        return { items = self.items }
-    end
-    return nil
 end
 
 function inventory:save()

@@ -2,6 +2,7 @@ local skynet = require "skynet"
 local session = {}
 local agent
 local protocol
+local rpc_handlers = {}
 
 function session:init(a)
     agent = a
@@ -11,23 +12,25 @@ function session:bind_protocol(p)
     protocol = p
 end
 
+function session:use_rpc(rpc)
+    rpc_handlers = rpc
+end
+
 function session:start()
-    protocol:on_message(function(name, args)
-        if name == "heartbeat" then
-            return { time = os.time() }
-        elseif name == "ping" then
-            return { msg = args and args.msg or "" }
-        elseif name == "echo" then
-            return { content = args and args.content or "" }
-        elseif name == "get_userinfo" then
-            return { userid = agent.uid, subid = agent.subid, login_time = agent.login_time }
-        else
-            local system_result = nil
-            if agent.systems.inventory and agent.systems.inventory.handle_request then
-                system_result = agent.systems.inventory:handle_request(name, args)
+    for name, system in pairs(agent.systems) do
+        if system.rpc then
+            for rpc_name, fn in pairs(system.rpc) do
+                rpc_handlers[rpc_name] = fn
             end
-            return system_result or {}
         end
+    end
+
+    protocol:on_message(function(name, args)
+        local handler = rpc_handlers[name]
+        if handler then
+            return handler(args)
+        end
+        return {}
     end)
 
     protocol:send("push", { channel = "system", content = "welcome " .. agent.uid })

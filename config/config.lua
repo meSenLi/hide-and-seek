@@ -6,7 +6,7 @@
 root = "./"
 luaservice = root.."service/?.lua;"..root.."script/?.lua;"..root.."script/service/?.lua"
 lualoader = root .. "lualib/loader.lua"
-lua_path = root.."?.lua;"..root.."lualib/?.lua;"..root.."lualib/?/init.lua;"..root.."script/?.lua"
+lua_path = root.."?.lua;"..root.."lualib/?.lua;"..root.."lualib/?/init.lua;"..root.."script/?.lua;"..root.."script/service/?.lua"
 lua_cpath = root .. "bin/luaclib/?.so"
 snax = root.."service/?.lua;"..root.."script/service/?.lua"
 cpath = root.."bin/cservice/?.so"

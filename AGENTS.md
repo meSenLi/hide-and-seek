@@ -21,6 +21,7 @@
 ## 代码规范
 
 - **语言**：Lua（修改版 5.5）。缩进用 **Tab**，与现有文件一致。
+- **RPC 添加**：遵循 `docs/RPC-使用规范.md`。协议先定义在 `config/proto/game.sproto`，handler 写在 `rpc` 表上（`rpc = {}`），session 自动收集。
 - **文件头注释**：业务服务顶部写 `-- 路径 + 中文职责`，列出对外命令。
 - **服务结构**：`skynet.start(func)` 注册启动；`skynet.dispatch("lua", ...)` 分发到 `CMD` 表；`skynet.ret(skynet.pack(...))` 回复。
 - **命令表**：统一命名 `CMD`，函数 `function CMD.xxx(source, ...)`。
@@ -43,11 +44,17 @@
 
 ## 配置与运行
 
-- 启动：`./skynet config/config.lua`；入口服务 `main`。
-- 依赖 MongoDB（`127.0.0.1:27017`，库 `hideandseek`）先行启动。
-- 改端口/库等只动 `config/config.lua`，勿散落到各服务。
+- 编译：`make linux`（产物全部在 `bin/` 下）
+- 启动：`bash shell/run.sh`（等价于 `bin/skynet`，自动清理端口）
+- 停止：`bash shell/stop.sh`
+- 启动入口：`script/main.lua`；配置：`config/config.lua`
+- 调试控制台：`nc 127.0.0.1 8000`（`list` / `mem` / `stat` 等命令）
+- 测试客户端：`./3rd/lua/lua client/main.lua`（交互式）
+- 依赖 MongoDB（`127.0.0.1:27017`，库 `hideandseek`）先行启动
+- 改端口/库等只动 `config/config.lua`，勿散落到各服务
 
 ## 验证
 
-- 改动后尽量端到端验证：能起服、能连接、鉴权与登录流程通（参考 `docs/登录流程.md`）。
-- C 层改动需 `make` 重新编译；Lua 改动热改即可。
+- 改动后尽量端到端验证：`bash shell/run.sh` 起服 → `./3rd/lua/lua client/main.lua` 交互测试。
+- 核心流程：客户端 → Gate(:8888) → Account(DH鉴权) → AgentLayered(RPC)。
+- C 层改动需 `make linux` 重新编译；Lua 改动重启即生效。

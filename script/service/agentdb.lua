@@ -18,7 +18,7 @@ local function ensure_collection()
     local client = mongo.client({ host = config.host, port = config.port })
     db = client[config.db]
     collection = db[collection_name]
-    collection:ensureIndex({ uid = 1, component = 1 }, { unique = true, name = "agent_component_uid_idx" })
+    collection:ensureIndex({ uid = 1 }, { component = 1 }, { unique = true, name = "agent_component_uid_idx" })
     skynet.error(string.format("[agentdb] connected to mongodb://%s:%d/%s, collection=%s", config.host, config.port, config.db, collection_name))
 end
 
