@@ -27,7 +27,6 @@ sproto 自动校验类型，非法请求在解码阶段被拒绝。
 local rpc = {}
 
 function rpc.mypackage(args)
-    -- args.name 必然是 string, args.count 必然是 integer
     return { ok = 1 }
 end
 
@@ -37,31 +36,50 @@ session:use_rpc(rpc)
 **系统模块（如 inventory）：**
 
 ```lua
--- systems/inventory.lua
-inventory.rpc = {}
+local base = require "agent_layered.systems.base"
+local mysys = base.new { data = {} }
+mysys.rpc = {}
 
-function inventory.rpc.add_item(args)
-    return { ok = 1 }
-end
+function mysys.rpc.my_rpc(args) ... end
 ```
 
-无需任何注册代码，session 自动收集所有 `system.rpc` 表。
+无需注册，session 自动合并所有 `system.rpc`。
 
-## 可选：限流
+## 数据规则
+
+| 规则 | 说明 |
+|------|------|
+| `_` 前缀 | 私有字段，`decorator.public()` 自动过滤，不下发客户端 |
+| 无 `_` 前缀 | 公开字段 |
+| `save()` 返回值 | 决定存盘内容（公开+私有都能存） |
+| `save_interval` | ms，自动存盘间隔；nil = 仅退出时存 |
+
+## 系统基类 (systems/base.lua)
+
+```
+base.new(t)              -- 创建子系统（原型继承）
+init(agent)              -- 设置 _agent，初始化 _timers
+save()     → table       -- 存盘数据
+load(state)              -- 恢复
+shutdown()               -- 清理 _timers + _agent
+add_timer(sec, fn, repeat)→id -- 定时器
+cancel_timer(id)              -- 取消
+```
+
+新建系统模板：
 
 ```lua
-local decorator = require "agent_layered.decorator"
+local base = require "agent_layered.systems.base"
+local sys = base.new { items = {}, gold = 0 }
 
-rpc.echo = decorator.ratelimit(5, 1000)(function(args)
-    -- 1000ms 内最多 5 次，超出返回 { error = "rate_limit_exceeded" }
-    return { content = args.content }
-end)
+sys.rpc = {}
+sys.save_interval = 60000
+
+function sys.rpc.add(args) ... end
+function sys:init(agent)    base.init(self, agent); ... end
+function sys:save()         return { gold = self.gold } end
+function sys:load(state)    ... end
+function sys:shutdown()     base.shutdown(self) end
+
+return sys
 ```
-
-## 规则
-
-1. 新增 RPC **必须先** 在 `game.sproto` 定义协议（类型声明 = 安全校验）
-2. 核心 RPC 写在 `agent_boot.lua` 的 `rpc` 表上
-3. 系统专用 RPC 写在 `system.rpc` 表上（`rpc = {}` 即可）
-4. 不要手动调 `session:use_rpc` — session 自动合并
-5. 参数类型只用 `string` / `integer`

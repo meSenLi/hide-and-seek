@@ -1,9 +1,10 @@
-local skynet = require "skynet"
+local base = require "agent_layered.systems.base"
 
-local inventory = {
-    items = {},
-    agent = nil,
+local inventory = base.new {
+    items = {},         -- 公开 + 存盘
 }
+
+inventory.save_interval = 60000
 
 inventory.rpc = {}
 
@@ -19,13 +20,14 @@ function inventory.rpc.get_inventory(args)
     return { count = #inventory.items }
 end
 
--- ====== lifecycle ======
 function inventory:init(agent)
-    self.agent = agent
+    self.super.init(self, agent)
     self.items = {}
-    self.agent.events:subscribe("player.join", function(uid)
-        if uid == self.agent.uid then
-            self.agent.protocol:send("push", { channel = "inventory", content = "inventory ready" })
+    self._agent.events:subscribe("player.join", function(uid)
+        if uid == self._agent.uid then
+            self._agent.protocol:send("push", {
+                channel = "inventory", content = "inventory ready"
+            })
         end
     end)
 end
@@ -35,14 +37,12 @@ function inventory:save()
 end
 
 function inventory:load(state)
-    if state and state.items then
-        self.items = state.items
-    end
+    if state and state.items then self.items = state.items end
 end
 
 function inventory:shutdown()
     self.items = nil
-    self.agent = nil
+    self.super.shutdown(self)
 end
 
 return inventory
