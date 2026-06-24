@@ -3,13 +3,13 @@
 	session 1 : integer
 }
 
-heartbeat 1 {
+rpc_heartbeat 1 {
 	response {
 		time 0 : integer
 	}
 }
 
-ping 2 {
+rpc_ping 2 {
 	request {
 		msg 0 : string
 	}
@@ -18,7 +18,7 @@ ping 2 {
 	}
 }
 
-echo 3 {
+rpc_echo 3 {
 	request {
 		content 0 : string
 	}
@@ -27,7 +27,7 @@ echo 3 {
 	}
 }
 
-get_userinfo 4 {
+rpc_get_user_info 4 {
 	response {
 		userid 0 : string
 		subid 1 : string
@@ -35,7 +35,7 @@ get_userinfo 4 {
 	}
 }
 
-add_item 5 {
+rpc_add_item 5 {
 	request {
 		id 0 : integer
 		name 1 : string
@@ -45,13 +45,13 @@ add_item 5 {
 	}
 }
 
-get_inventory 6 {
+rpc_get_inventory 6 {
 	response {
 		count 0 : integer
 	}
 }
 
-change_nickname 7 {
+rpc_change_nickname 7 {
 	request {
 		name 0 : string
 	}

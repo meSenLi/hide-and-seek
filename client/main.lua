@@ -176,6 +176,7 @@ local function do_login(user, pass, reg)
 end
 
 local function str2table(str)
+	str = str or ""
     local f = load("return " .. str)
     if not f then return nil, "parse error" end
     local ok, ret = pcall(f)

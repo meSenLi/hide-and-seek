@@ -31,6 +31,7 @@ end
 function inventory:init_finish()
     self.agent.events:subscribe(event_const.EVENT_LOGIN, function(uid)
         self.log:info("user login, uid: %s", uid)
+        print('user login, uid finish!!!!!!!!!!!!!!!!!!')
     end)
 end
 
