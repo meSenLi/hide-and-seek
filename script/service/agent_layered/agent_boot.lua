@@ -52,7 +52,7 @@ function CMD.start(source, conf)
     session:bind_protocol(protocol)
     session:start()
 
-    agent.systems.core:onLogin()
+    agent.systems.core:on_login()
 end
 
 function CMD.disconnect(source)

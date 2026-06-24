@@ -11,15 +11,22 @@ function session:bind_protocol(p)
     protocol = p
 end
 
-function session:start()
-    local rpc_handlers = {}
-    for name, system in pairs(agent.systems) do
-        if system.rpc then
-            for rpc_name, fn in pairs(system.rpc) do
-                rpc_handlers[rpc_name] = fn
+local function collect_rpc_methods(self)
+    local result = {}
+    for key, fn in pairs(self) do
+        if type(key) == "string" and key:sub(1, 4) == "rpc_" and type(fn) == "function" then
+            local name = key:sub(5)
+            result[name] = function(...)
+                return fn(self, ...)
             end
         end
     end
+    return result
+end
+
+
+function session:start()
+    local rpc_handlers = collect_rpc_methods(agent.systems)
 
     protocol:on_message(function(name, args)
         local handler = rpc_handlers[name]

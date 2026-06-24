@@ -51,7 +51,7 @@ get_inventory 6 {
 	}
 }
 
-rpc_change_nickname 7 {
+change_nickname 7 {
 	request {
 		name 0 : string
 	}

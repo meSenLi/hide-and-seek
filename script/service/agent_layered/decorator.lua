@@ -5,7 +5,7 @@
 local decorator = {}
 local skynet = require "skynet"
 
-function decorator.ratelimit(limit, window_ms)
+function decorator.rate_limit(limit, window_ms)
 	return function(fn)
 		local count = 0
 		local reset_at = 0

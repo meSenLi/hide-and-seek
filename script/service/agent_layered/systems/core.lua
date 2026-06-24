@@ -29,16 +29,16 @@ function core:init(agent, state)
     self.super.init(self, agent, state)
 end
 
-function core:onLogin()
+function core:on_login()
     self.status = AgentState.NORMAL
     self.agent.events:publish(event_const.EVENT_LOGIN, self.agent.uid)
     self.log:info("agent %s login", self.agent.uid)
-    self:add_timer(5, self.rpc_heartbeat, true)
+    self:add_timer(5, self.rpc_heart_beat, true)
 end
 
 
 
-function core:rpc_changeNickname(nickname)
+function core:rpc_change_nickname(nickname)
     if self.nickname ~= nickname then
         local old_nickname = self.nickname
         self.nickname = nickname
@@ -52,7 +52,7 @@ end
 
 
 
-function core:rpc_heartbeat(args)
+function core:rpc_heart_beat(args)
     return { time = os.time() }
 end
 
@@ -64,7 +64,7 @@ function core:rpc_echo(args)
     return { content = args and args.content or "" }
 end
 
-function core:rpc_get_userinfo(args)
+function core:rpc_get_user_info(args)
     return { userid = core.agent.uid, subid = core.agent.subid, login_time = core.agent.login_time }
 end
 
