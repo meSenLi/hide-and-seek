@@ -1,10 +1,14 @@
 local base = require "agent_layered.systems.base"
+local event_const = require "agent_layered.systems.event_const"
 
 local inventory = base.new {
     items = {},         -- 公开 + 存盘
-}
 
-inventory.save_interval = 60000
+
+    __fields__ = {
+        items = { persist = true, sync = true },
+    },
+}
 
 inventory.rpc = {}
 
@@ -20,24 +24,14 @@ function inventory.rpc.get_inventory(args)
     return { count = #inventory.items }
 end
 
-function inventory:init(agent)
-    self.super.init(self, agent)
-    self.items = {}
-    self._agent.events:subscribe("player.join", function(uid)
-        if uid == self._agent.uid then
-            self._agent.protocol:send("push", {
-                channel = "inventory", content = "inventory ready"
-            })
-        end
+function inventory:init(agent, state)
+    self.super.init(self, agent, state)
+end
+
+function inventory:init_finish()
+    self.agent.events:subscribe(event_const.EVENT_LOGIN, function(uid)
+        self.log:info("user login, uid: %s", uid)
     end)
-end
-
-function inventory:save()
-    return { items = self.items }
-end
-
-function inventory:load(state)
-    if state and state.items then self.items = state.items end
 end
 
 function inventory:shutdown()

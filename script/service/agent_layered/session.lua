@@ -2,7 +2,6 @@ local skynet = require "skynet"
 local session = {}
 local agent
 local protocol
-local rpc_handlers = {}
 
 function session:init(a)
     agent = a
@@ -12,11 +11,8 @@ function session:bind_protocol(p)
     protocol = p
 end
 
-function session:use_rpc(rpc)
-    rpc_handlers = rpc
-end
-
 function session:start()
+    local rpc_handlers = {}
     for name, system in pairs(agent.systems) do
         if system.rpc then
             for rpc_name, fn in pairs(system.rpc) do
