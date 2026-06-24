@@ -30,6 +30,7 @@ local function dispatch_message(body)
         return
     end
     if t == "REQUEST" and message_callback then
+        print("runing request: ", name, args)
         local status, result = pcall(message_callback, name, args)
         if status and response then
             send_frame(response(result or {}))

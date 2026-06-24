@@ -175,6 +175,14 @@ local function do_login(user, pass, reg)
 	end
 end
 
+local function str2table(str)
+    local f = load("return " .. str)
+    if not f then return nil, "parse error" end
+    local ok, ret = pcall(f)
+    if not ok then return {} end
+    return ret
+end
+
 -- 登录后命令 → RPC
 local function handle_rpc(cmd)
 	local t = split(cmd)
@@ -192,7 +200,7 @@ local function handle_rpc(cmd)
 	elseif op == nil then
 		-- 空行
 	else
-		send_request(op, { name = cmd:match("^%s*echo%s+(.*)") or "" })
+		send_request(op, str2table(t[2]))
 	end
 end
 

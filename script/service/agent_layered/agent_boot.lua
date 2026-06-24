@@ -23,10 +23,10 @@ local function init_systems()
     agent.systems.core = system_core
     agent.systems.inventory = system_inventory
 
+    local agentdb = storage:load() or {}
     for name, system in pairs(agent.systems) do
-        local state = storage:load_component(name)
         if system.init then
-            system:init(agent, state)
+            system:init(agent, agentdb[name])
         end
     end
 

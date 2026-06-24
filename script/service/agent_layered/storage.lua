@@ -19,4 +19,17 @@ function storage:load_component(name)
     return skynet.call("agentdb", "lua", "load_component", uid, name)
 end
 
+function storage:save(state)
+    local ok, err = skynet.call("agentdb", "lua", "save", uid,  state)
+    if not ok then
+        skynet.error(string.format("[agent_layered.storage] save failed for %s: %s", uid, tostring(err)))
+        return nil, err
+    end
+    return true
+end
+
+function storage:load()
+    return skynet.call("agentdb", "lua", "load", uid)
+end
+
 return storage

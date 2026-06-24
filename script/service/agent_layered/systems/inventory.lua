@@ -2,7 +2,7 @@ local base = require "agent_layered.systems.base"
 local event_const = require "agent_layered.systems.event_const"
 
 local inventory = base.new {
-    items = {},         -- 公开 + 存盘
+    items = {},
 
 
     __fields__ = {

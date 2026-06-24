@@ -6,10 +6,11 @@ require "skynet.manager"
 local mongo = require "skynet.db.mongo"
 local bson = require "bson"
 local config = require "config.mongo"
+local save = require("script.service.agent_layered.systems.base").save
 
 local db
 local collection
-local collection_name = "agent_state"
+local collection_name = "agent"
 
 local function ensure_collection()
     if collection then
@@ -18,8 +19,41 @@ local function ensure_collection()
     local client = mongo.client({ host = config.host, port = config.port })
     db = client[config.db]
     collection = db[collection_name]
-    collection:ensureIndex({ uid = 1 }, { component = 1 }, { unique = true, name = "agent_component_uid_idx" })
+    collection:ensureIndex({ uid = 1 }, { unique = true, name = "agent_uid_idx" })
     skynet.error(string.format("[agentdb] connected to mongodb://%s:%d/%s, collection=%s", config.host, config.port, config.db, collection_name))
+end
+
+function save(uid, state)
+    if not collection then
+        return nil, "storage_not_initialized"
+    end
+    local doc = {
+        uid = uid,
+        state = state or {},
+        updated_at = os.time(),
+    }
+    local ok, err = collection:safe_update(
+        { uid = uid },
+        { ["$set"] = doc },
+        true,
+        false
+    )
+    if not ok then
+        skynet.error(string.format("[agentdb] save failed for %s: %s", uid, tostring(err)))
+        return nil, err
+    end
+    return true
+end
+
+local function load(uid)
+    if not collection then
+        return nil, "storage_not_initialized"
+    end
+    local doc = collection:findOne({ uid = uid})
+    if doc and doc.state then
+        return doc.state
+    end
+    return nil
 end
 
 local function save_component(uid, component, state)
@@ -28,12 +62,11 @@ local function save_component(uid, component, state)
     end
     local doc = {
         uid = uid,
-        component = component,
-        state = state or {},
+        [component] = state or {},
         updated_at = os.time(),
     }
     local ok, err = collection:safe_update(
-        { uid = uid, component = component },
+        { uid = uid},
         { ["$set"] = doc },
         true,
         false
@@ -49,7 +82,7 @@ local function load_component(uid, component)
     if not collection then
         return nil, "storage_not_initialized"
     end
-    local doc = collection:findOne({ uid = uid, component = component })
+    local doc = collection:findOne({uid = uid}, {[component]=1})
     if doc and doc.state then
         return doc.state
     end
@@ -64,6 +97,15 @@ end
 
 function CMD.load_component(uid, component)
     return load_component(uid, component)
+end
+
+
+function CMD.save(uid, state)
+    return save(uid, state)
+end
+
+function CMD.load(uid)
+    return load(uid)
 end
 
 skynet.start(function()

@@ -15,7 +15,7 @@ local function collect_rpc_methods(self)
     local result = {}
     for key, fn in pairs(self) do
         if type(key) == "string" and key:sub(1, 4) == "rpc_" and type(fn) == "function" then
-            local name = key:sub(5)
+            local name = key
             result[name] = function(...)
                 return fn(self, ...)
             end
@@ -31,6 +31,7 @@ function session:start()
     protocol:on_message(function(name, args)
         local handler = rpc_handlers[name]
         if handler then
+            agent.log:debug("[agent_layered] rpc %s", name)
             return handler(args)
         end
         return {}
