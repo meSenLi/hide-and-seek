@@ -33,13 +33,17 @@ function core:onLogin()
     self.status = AgentState.NORMAL
     self.agent.events:publish(event_const.EVENT_LOGIN, self.agent.uid)
     self.log:info("agent %s login", self.agent.uid)
-    self:add_timer(5, self.rpc.heartbeat, true)
+    self:add_timer(5, self.rpc_heartbeat, true)
 end
 
 
 
-function core.rpc.changeNickname(nickname)
-
+function core:rpc_changeNickname(nickname)
+    if self.nickname ~= nickname then
+        local old_nickname = self.nickname
+        self.nickname = nickname
+        self.log.info("change nickname: %s -> %s", old_nickname, self.nickname)
+    end
 end
 
 
@@ -48,19 +52,19 @@ end
 
 
 
-function core.rpc.heartbeat(args)
+function core:rpc_heartbeat(args)
     return { time = os.time() }
 end
 
-function core.rpc.ping(args)
+function core:rpc_ping(args)
     return { msg = args and args.msg or "" }
 end
 
-function core.rpc.echo(args)
+function core:rpc_echo(args)
     return { content = args and args.content or "" }
 end
 
-function core.rpc.get_userinfo(args)
+function core:rpc_get_userinfo(args)
     return { userid = core.agent.uid, subid = core.agent.subid, login_time = core.agent.login_time }
 end
 

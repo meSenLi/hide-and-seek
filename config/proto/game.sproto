@@ -50,3 +50,9 @@ get_inventory 6 {
 		count 0 : integer
 	}
 }
+
+rpc_change_nickname 7 {
+	request {
+		name 0 : string
+	}
+}

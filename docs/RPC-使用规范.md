@@ -82,4 +82,149 @@ function sys:load(state)    ... end
 function sys:shutdown()     base.shutdown(self) end
 
 return sys
+
+## 新增系统说明
+
+### 1. 系统文件位置
+
+- 新系统一般放在 `script/service/agent_layered/systems/` 下
+- 文件名应与模块名一致，例如 `script/service/agent_layered/systems/achievement.lua`
+- 需要在 `agent_boot.lua` 的 `agent.systems` 中注册
+
+### 2. 基础结构
+
+```lua
+local base = require "agent_layered.systems.base"
+local sys = base.new {
+    unlocked = {},
+    points = 0,
+
+    __fields__ = {
+        unlocked = { persist = true, sync = true },
+        points = { persist = true, sync = false },
+    },
+}
+
+sys.rpc = {}
+```
+
+- `base.new(t)` 会把 `sys` 继承自系统基类
+- `sys.rpc` 是显式 RPC 映射表，可放置函数
+- `__fields__` 控制哪些字段需要持久化和同步
+
+### 3. 数据声明说明
+
+- `__fields__` 是显式字段元信息表，只有在这里声明的字段才会持久化
+- 支持两种形式：
+  - 布尔值：`true` 相当于 `{ persist = true, sync = true }`
+  - 表：`{ persist = bool, sync = bool }`
+- 默认值为 `{ persist = false, sync = false }`
+- `persist = true` 表示字段会被存盘
+- `sync = true` 表示字段可对外同步
+
+示例：
+
+```lua
+__fields__ = {
+    items = { persist = true, sync = true },
+    gold = { persist = true, sync = false },
+    cache = { persist = false, sync = false },
+}
+```
+
+### 4. 公有/私有字段约定
+
+- 公开字段：不以下划线 `_` 开头
+- 私有字段：以下划线 `_` 开头，表示内部实现细节
+- `save()` 返回值决定存盘内容，私有字段也可以存盘
+
+### 5. RPC 新增说明
+
+系统 RPC 有两种写法：
+
+1. 显式注册 `sys.rpc`
+
+```lua
+sys.rpc.add_item = function(args)
+    ...
+end
+```
+
+2. 使用 `rpc_*` 方法自动收集
+
+```lua
+function sys:rpc_add_item(args)
+    ...
+end
+```
+
+- `rpc_*` 方法会被自动映射为 RPC 名称去掉前缀后的部分
+- `sys.rpc` 表中的函数会直接作为 RPC 处理器
+- RPC 函数签名为 `function(args)` 或 `function(self, args)`
+- 返回值应为一个结果表，如 `{ ok = 1 }`
+
+### 6. 生命周期方法
+
+建议实现以下方法：
+
+- `function sys:init(agent, state)`
+  - 调用 `self.super.init(self, agent, state)` 或 `base.init(self, agent, state)`
+  - 绑定 `self.agent`、`self.log`、计时器等基础功能
+  - 让基类帮你自动恢复 `__fields__`
+
+- `function sys:load(state)`
+  - 读取 `state` 并赋值给系统字段
+  - 基类默认实现会自动恢复 `__fields__`
+
+- `function sys:save()`
+  - 返回一个表用于持久化
+  - 基类默认实现会保存 `__fields__` 中声明的字段
+
+- `function sys:init_finish()`
+  - 可选，所有系统初始化完成后调用
+
+- `function sys:shutdown()`
+  - 清理定时器与引用
+  - 最后调用 `self.super.shutdown(self)` 或 `base.shutdown(self)`
+
+### 7. 示例系统
+
+```lua
+local base = require "agent_layered.systems.base"
+local achievement = base.new {
+    unlocked = {},
+    points = 0,
+
+    __fields__ = {
+        unlocked = { persist = true, sync = true },
+        points = { persist = true, sync = true },
+    },
+}
+
+function achievement:rpc_add_point(args)
+    self.points = self.points + (args.amount or 1)
+    return { points = self.points }
+end
+
+function achievement:rpc_get_status(args)
+    return { unlocked = self.unlocked, points = self.points }
+end
+
+function achievement:init(agent, state)
+    self.super.init(self, agent, state)
+end
+
+function achievement:shutdown()
+    self.super.shutdown(self)
+end
+
+return achievement
+```
+
+### 8. 其它注意点
+
+- 新系统添加后，确保 `agent_boot.lua` 的 `agent.systems` 已注册该模块
+- 如需订阅事件，可使用 `self.agent.events:subscribe(...)`
+- 如需日志输出，可使用 `self.log:info(...)`、`self.log:error(...)`
+- 推荐 RPC 名称保持小写、简洁和语义明确
 ```

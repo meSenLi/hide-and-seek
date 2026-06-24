@@ -60,6 +60,26 @@ local function collect_persist_fields(self)
     return result
 end
 
+local function collect_rpc_methods(self)
+    local result = {}
+    if self.rpc then
+        for name, fn in pairs(self.rpc) do
+            if type(fn) == "function" then
+                result[name] = fn
+            end
+        end
+    end
+    for key, fn in pairs(self) do
+        if type(key) == "string" and key:sub(1, 4) == "rpc_" and type(fn) == "function" then
+            local name = key:sub(5)
+            result[name] = function(...)
+                return fn(self, ...)
+            end
+        end
+    end
+    return result
+end
+
 -- ====== lifecycle ======
 
 function base:init(agent, state)
@@ -67,6 +87,7 @@ function base:init(agent, state)
     self.log = agent and agent.log or nil
     self._timers = {}
     self._timer_id = 0
+    self.rpc = collect_rpc_methods(self)
     if state then
         self:load(state)
     end

@@ -102,7 +102,30 @@ end
 local fd
 local logged_user
 local session = 0
-local pending = {}	-- session -> 请求名
+local pending = {}    -- session -> 请求名
+local client = {}
+local client_rpc_handlers = {}
+local client_rpc_discovered = false
+
+local function discover_client_rpc_handlers()
+    client_rpc_handlers = {}
+    for name, fn in pairs(client) do
+        if type(name) == "string" and name:sub(1, 8) == "on_rpc_" and type(fn) == "function" then
+            client_rpc_handlers[name:sub(8)] = fn
+        end
+    end
+    client_rpc_discovered = true
+end
+
+local function ensure_client_rpc_handlers()
+    if not client_rpc_discovered then
+        discover_client_rpc_handlers()
+    end
+end
+
+function client.on_rpc_push(args)
+    print(string.format("\n<<< [push:%s] %s", tostring(args and args.channel or "unknown"), tostring(args and args.content or "")))
+end
 
 local function send_request(name, args)
 	session = session + 1
@@ -122,8 +145,16 @@ local function on_frame(body)
 		pending[p2] = nil
 		print(string.format("\n<<< [%s] %s", name, dump(p3)))
 	elseif typ == "REQUEST" then
-		-- 服务端 push（p2=协议名, p3=参数）
-		print(string.format("\n<<< [push] %s", dump(p3)))
+		ensure_client_rpc_handlers()
+		local handler = client_rpc_handlers[p2]
+		if handler then
+			local ok, err = pcall(handler, p3)
+			if not ok then
+				print(string.format("\n[client on_rpc error] %s", tostring(err)))
+			end
+		else
+			print(string.format("\n<<< [push] %s", dump(p3)))
+		end
 	end
 	io.write("> "); io.flush()
 end
@@ -161,7 +192,7 @@ local function handle_rpc(cmd)
 	elseif op == nil then
 		-- 空行
 	else
-		print("未知命令。可用: ping / echo / info / heartbeat / help / quit")
+		send_request(op, { name = cmd:match("^%s*echo%s+(.*)") or "" })
 	end
 end
 
