@@ -7,9 +7,9 @@ root = "./"
 luaservice = root.."service/?.lua;"..root.."script/?.lua;"..root.."script/service/?.lua"
 lualoader = root .. "lualib/loader.lua"
 lua_path = root.."?.lua;"..root.."lualib/?.lua;"..root.."lualib/?/init.lua;"..root.."script/?.lua;"..root.."script/service/?.lua"
-lua_cpath = root .. "bin/luaclib/?.so"
+lua_cpath = root .. "bin/linux/luaclib/?.so"
 snax = root.."service/?.lua;"..root.."script/service/?.lua"
-cpath = root.."bin/cservice/?.so"
+cpath = root.."bin/linux/cservice/?.so"
 
 thread = 8
 harbor = 0
@@ -18,7 +18,7 @@ logger = "log/game.log"
 
 start = "main"
 bootstrap = "snlua bootstrap"
-daemon = "./bin/skynet.pid"
+daemon = "./bin/linux/skynet.pid"
 -- ======== 游戏业务配置 ========
 local M = {}
 

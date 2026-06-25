@@ -1,7 +1,7 @@
 -- client/socket.lua
 -- 客户端 TCP Socket 封装（基于 lua-clientsocket C 模块）
 
-package.cpath = "bin/luaclib/?.so"
+package.cpath = (os.getenv("CLIENT_CPATH") or "bin/linux/luaclib/?.so")
 local c = require "client_socket"
 
 local M = {}

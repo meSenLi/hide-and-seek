@@ -1,5 +1,5 @@
 package.path = "./lualib/?.lua;./client/?.lua;./script/?.lua;./script/service/?.lua;./?.lua;" .. package.path
-package.cpath = "./bin/luaclib/?.so;./luaclib/?.so;" .. package.cpath
+package.cpath = "./bin/linux/luaclib/?.so;./luaclib/?.so;" .. package.cpath
 
 local sproto = require "sproto"
 local socket = require "client.socket"

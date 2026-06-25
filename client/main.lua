@@ -7,7 +7,7 @@
 --   登录后：ping [msg] / echo <text> / info / heartbeat / help / quit
 
 package.path = "lualib/?.lua;" .. package.path
-package.cpath = "bin/luaclib/?.so"
+package.cpath = (os.getenv("CLIENT_CPATH") or "bin/linux/luaclib/?.so")
 
 local s = require "client.socket"
 local c = require "client.crypt"

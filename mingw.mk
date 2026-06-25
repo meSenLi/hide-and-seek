@@ -3,9 +3,9 @@ CC = x86_64-w64-mingw32-gcc
 AR = x86_64-w64-mingw32-ar
 RANLIB = x86_64-w64-mingw32-ranlib
 
-LUA_CLIB_PATH ?= luaclib
-CSERVICE_PATH ?= cservice
-SKYNET_BUILD_PATH ?= .
+LUA_CLIB_PATH ?= bin/win/luaclib
+CSERVICE_PATH ?= bin/win/cservice
+SKYNET_BUILD_PATH ?= bin/win
 COMPAT_MINGW_DIR = 3rd/compat-mingw
 
 LUA_DIR = 3rd/lua
@@ -64,12 +64,14 @@ SKYNET_SRC = skynet_main.c skynet_handle.c skynet_module.c skynet_mq.c \
   skynet_harbor.c skynet_env.c skynet_monitor.c skynet_socket.c socket_server.c \
   mem_info.c malloc_hook.c skynet_daemon.c skynet_log.c
 
-$(LUA_STATICLIB): 
-	@echo "Building Lua static library..."
+$(LUA_DIR)/onelua.o: $(LUA_DIR)/onelua.c
 	cd $(LUA_DIR) && $(CC) $(LUA_CFLAGS) -DMAKE_LIB -c onelua.c -o onelua.o
+
+$(LUA_STATICLIB): $(LUA_DIR)/onelua.o
+	@echo "Building Lua static library..."
 	cd $(LUA_DIR) && $(AR) rcs liblua.a onelua.o
 
-$(LUA_DLL) : $(LUA_STATICLIB)
+$(LUA_DLL) : $(LUA_DIR)/onelua.o
 	@echo "Building Lua DLL..."
 	cd $(LUA_DIR) && $(CC) -shared -o lua54.dll onelua.o -Wl,--export-all-symbols,--out-implib,liblua54.a $(SKYNET_LIBS)
 	@echo "Lua DLL and import library created successfully"

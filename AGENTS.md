@@ -44,8 +44,8 @@
 
 ## 配置与运行
 
-- 编译：`make linux`（产物全部在 `bin/` 下）
-- 启动：`bash shell/run.sh`（等价于 `bin/skynet`，自动清理端口）
+- 编译：`make linux`（产物全部在 `bin/linux/` 下）；`make mingw`（产物在 `bin/win/` 下，需 `gcc-mingw-w64-x86-64`）
+- 启动：`bash shell/run.sh`（等价于 `bin/linux/skynet`，自动清理端口）
 - 停止：`bash shell/stop.sh`
 - 启动入口：`script/main.lua`；配置：`config/config.lua`
 - 调试控制台：`nc 127.0.0.1 8000`（`list` / `mem` / `stat` 等命令）
