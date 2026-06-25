@@ -10,18 +10,16 @@ local inventory = base.new {
     },
 }
 
-inventory.rpc = {}
-
-function inventory.rpc.add_item(args)
+function inventory:rpc_add_item(args)
     if args and args.id then
-        inventory.items[args.id] = { id = args.id, name = args.name }
+        self.items[args.id] = { id = args.id, name = args.name }
         return { ok = 1 }
     end
     return { ok = 0 }
 end
 
-function inventory.rpc.get_inventory(args)
-    return { count = #inventory.items }
+function inventory:rpc_get_inventory(args)
+    return { count = #self.items }
 end
 
 function inventory:init(agent, state)

@@ -12,6 +12,7 @@ package.cpath = "bin/luaclib/?.so"
 local s = require "client.socket"
 local c = require "client.crypt"
 local sproto = require "sproto"
+local send = require("lualib.compat10.cluster").send
 
 local HOST, PORT, SVR = "127.0.0.1", 8888, "hideandseek"
 
@@ -95,7 +96,8 @@ end
 
 local function print_help()
 	print("命令: login [账号 密码] | register 账号 密码 | help | quit")
-	print("登录后: ping [msg] | echo <text> | info | heartbeat | additem <id> <name> | inv | nick <name>")
+	print("登录后直接输入 RPC 名和参数，如: rpc_ping({msg=\"hello\"})")
+	print("快捷别名: ping [msg] | echo <text> | info | hb | additem <id> <name> | inv | nick <name>")
 end
 
 -- ====== 登录态 + RPC ======
@@ -169,7 +171,7 @@ local function do_login(user, pass, reg)
 	if code == 200 then
 		fd = nfd; logged_user = user	-- 注意：保留 L（welcome push 可能已到达）
 		print(string.format("登录成功! 账号=%s subid=%s", user, tostring(subid)))
-		print("可用 RPC: ping / echo / info / heartbeat / additem / inv / nick，quit 退出。")
+		print("登录后直接输入 RPC，如 rpc_ping({msg=\"hello\"}) 或快捷别名 ping hello")
 	else
 		print("登录失败 code=" .. tostring(code)); s.close(nfd)
 	end
@@ -184,30 +186,65 @@ local function str2table(str)
     return ret
 end
 
+-- 快捷别名 → 完整 RPC 名
+local rpc_alias = {
+	ping = "rpc_ping",
+	echo = "rpc_echo",
+	info = "rpc_get_user_info",
+	hb = "rpc_heart_beat",
+	heartbeat = "rpc_heart_beat",
+	additem = "rpc_add_item",
+	inv = "rpc_get_inventory",
+	nick = "rpc_change_nickname",
+}
+
 -- 登录后命令 → RPC
+-- 支持三种格式:
+--   1. 直接 RPC:   rpc_ping({msg="hello"})
+--   2. 别名+括号:  ping({msg="hello"})
+--   3. 别名+空格:  ping hello
 local function handle_rpc(cmd)
+	-- 试试直接解析 xxx({...}) 格式
+	local func_name, args_str = cmd:match("^(%w+)%s*%((.*)%)%s*$")
+	if func_name then
+		local args = str2table(args_str) or {}
+		-- rpc_ 前缀直接发
+		if func_name:sub(1, 4) == "rpc_" then
+			send_request(func_name, args)
+			return
+		end
+		-- 别名映射
+		local alias = rpc_alias[func_name]
+		if alias then
+			send_request(alias, args)
+		else
+			send_request(func_name, args)
+		end
+		return
+	end
+
+	-- 别名+空格格式
 	local t = split(cmd)
 	local op = t[1]
-	if op == "ping" then
-		send_request("rpc_ping", { msg = t[2] or "ping" })
-	elseif op == "echo" then
-		send_request("rpc_echo", { content = cmd:match("^%s*echo%s+(.*)") or "" })
-	elseif op == "info" then
-		send_request("rpc_get_user_info", {})
-	elseif op == "heartbeat" or op == "hb" then
-		send_request("rpc_heart_beat", {})
-	elseif op == "additem" then
-		send_request("rpc_add_item", { id = tonumber(t[2]) or 1, name = t[3] or "test_item" })
-	elseif op == "inv" then
-		send_request("rpc_get_inventory", {})
-	elseif op == "nick" then
-		send_request("rpc_change_nickname", { name = t[2] or "new_nick" })
+	local alias = rpc_alias[op]
+	if alias then
+		if op == "ping" then
+			send_request(alias, { msg = t[2] or "ping" })
+		elseif op == "echo" then
+			send_request(alias, { content = cmd:match("^%s*echo%s+(.*)") or "" })
+		elseif op == "additem" then
+			send_request(alias, { id = tonumber(t[2]) or 1, name = t[3] or "test_item" })
+		elseif op == "nick" then
+			send_request(alias, { name = t[2] or "" })
+		else
+			send_request(alias, {})
+		end
 	elseif op == "help" then
 		print_help()
 	elseif op == nil then
 		-- 空行
 	else
-		send_request(op, str2table(t[2]))
+		print("未知命令: " .. op .. "，输入 help 查看帮助")
 	end
 end
 

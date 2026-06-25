@@ -24,16 +24,6 @@ local function collect_rpc_methods(systems)
                 end
             end
         end
-        -- also collect from system.rpc subtable
-        if type(sys.rpc) == "table" then
-            for key, fn in pairs(sys.rpc) do
-                if type(key) == "string" and type(fn) == "function" then
-                    result[key] = function(args)
-                        return fn(args)
-                    end
-                end
-            end
-        end
     end
     return result
 end
