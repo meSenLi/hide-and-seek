@@ -95,7 +95,7 @@ end
 
 local function print_help()
 	print("命令: login [账号 密码] | register 账号 密码 | help | quit")
-	print("登录后: ping [msg] | echo <text> | info | heartbeat")
+	print("登录后: ping [msg] | echo <text> | info | heartbeat | additem <id> <name> | inv | nick <name>")
 end
 
 -- ====== 登录态 + RPC ======
@@ -169,7 +169,7 @@ local function do_login(user, pass, reg)
 	if code == 200 then
 		fd = nfd; logged_user = user	-- 注意：保留 L（welcome push 可能已到达）
 		print(string.format("登录成功! 账号=%s subid=%s", user, tostring(subid)))
-		print("可用 RPC: ping / echo / info / heartbeat，quit 退出。")
+		print("可用 RPC: ping / echo / info / heartbeat / additem / inv / nick，quit 退出。")
 	else
 		print("登录失败 code=" .. tostring(code)); s.close(nfd)
 	end
@@ -189,13 +189,19 @@ local function handle_rpc(cmd)
 	local t = split(cmd)
 	local op = t[1]
 	if op == "ping" then
-		send_request("ping", { msg = t[2] or "ping" })
+		send_request("rpc_ping", { msg = t[2] or "ping" })
 	elseif op == "echo" then
-		send_request("echo", { content = cmd:match("^%s*echo%s+(.*)") or "" })
+		send_request("rpc_echo", { content = cmd:match("^%s*echo%s+(.*)") or "" })
 	elseif op == "info" then
-		send_request("get_userinfo", {})
+		send_request("rpc_get_user_info", {})
 	elseif op == "heartbeat" or op == "hb" then
-		send_request("heartbeat", {})
+		send_request("rpc_heart_beat", {})
+	elseif op == "additem" then
+		send_request("rpc_add_item", { id = tonumber(t[2]) or 1, name = t[3] or "test_item" })
+	elseif op == "inv" then
+		send_request("rpc_get_inventory", {})
+	elseif op == "nick" then
+		send_request("rpc_change_nickname", { name = t[2] or "new_nick" })
 	elseif op == "help" then
 		print_help()
 	elseif op == nil then

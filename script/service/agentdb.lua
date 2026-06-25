@@ -6,7 +6,6 @@ require "skynet.manager"
 local mongo = require "skynet.db.mongo"
 local bson = require "bson"
 local config = require "config.mongo"
-local save = require("script.service.agent_layered.systems.base").save
 
 local db
 local collection

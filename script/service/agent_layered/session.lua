@@ -11,13 +11,27 @@ function session:bind_protocol(p)
     protocol = p
 end
 
-local function collect_rpc_methods(self)
+local function collect_rpc_methods(systems)
     local result = {}
-    for key, fn in pairs(self) do
-        if type(key) == "string" and key:sub(1, 4) == "rpc_" and type(fn) == "function" then
-            local name = key
-            result[name] = function(...)
-                return fn(self, ...)
+    -- iterate each system (core, inventory, ...)
+    for sys_name, sys in pairs(systems) do
+        -- collect rpc_* methods from system itself
+        for key, fn in pairs(sys) do
+            if type(key) == "string" and key:sub(1, 4) == "rpc_" and type(fn) == "function" then
+                local name = key:sub(5)   -- strip "rpc_" prefix
+                result[name] = function(args)
+                    return fn(sys, args)
+                end
+            end
+        end
+        -- also collect from system.rpc subtable
+        if type(sys.rpc) == "table" then
+            for key, fn in pairs(sys.rpc) do
+                if type(key) == "string" and type(fn) == "function" then
+                    result[key] = function(args)
+                        return fn(args)
+                    end
+                end
             end
         end
     end
@@ -29,11 +43,17 @@ function session:start()
     local rpc_handlers = collect_rpc_methods(agent.systems)
 
     protocol:on_message(function(name, args)
-        local handler = rpc_handlers[name]
+        -- sproto protocol names are "rpc_xxx" → strip prefix to match handler keys
+        local handler_name = name
+        if name:sub(1, 4) == "rpc_" then
+            handler_name = name:sub(5)
+        end
+        local handler = rpc_handlers[handler_name]
         if handler then
-            agent.log:debug("[agent_layered] rpc %s", name)
+            agent.log:debug("[agent_layered] rpc %s → %s", name, handler_name)
             return handler(args)
         end
+        agent.log:warn("[agent_layered] unknown rpc: %s", name)
         return {}
     end)
 
